@@ -5,3 +5,10 @@
 .kotlin
 .qodana
 build
+/.idea/
+/.run/
+/.codex/
+/.claude/
+/openspec/
+/.agents/
+/.specify/
