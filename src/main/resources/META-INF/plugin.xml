@@ -1,7 +1,7 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
     <id>com.github.ponyhuang.agentacpplugin</id>
-    <name>agent-acp-plugin</name>
+    <name>ACP Chat</name>
     <vendor>pony-huang</vendor>
 
     <depends>com.intellij.modules.platform</depends>
@@ -9,7 +9,11 @@
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.ponyhuang.agentacpplugin.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
+        <toolWindow
+                factoryClass="com.github.ponyhuang.agentacpplugin.toolWindow.MyToolWindowFactory"
+                id="AcpChat"
+                stripeTitle="ACP Chat"
+                anchor="right"/>
         <postStartupActivity implementation="com.github.ponyhuang.agentacpplugin.startup.MyProjectActivity" />
     </extensions>
 </idea-plugin>

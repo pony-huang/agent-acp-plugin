@@ -1,5 +1,6 @@
 # agent-acp-plugin
 
+<!-- Plugin description -->
 `agent-acp-plugin` is an IntelliJ Platform plugin for connecting to multiple
 AI agents through the Agent Client Protocol and chatting with them concurrently
 inside a native JetBrains tool window.
@@ -39,3 +40,12 @@ The product direction is explicit:
 - Native Swing and JetBrains UI components are required for ACP surfaces.
 - `check` is required before merge, and `verifyPlugin` is required when release
   compatibility matters.
+
+## Current MVP
+
+- The tool window launches a local ACP agent command over STDIO.
+- Session updates are normalized into timeline snapshots before any Swing
+  component renders them.
+- The active session view stays in a vertical splitter with `Chat Conversation`
+  above `User Input`, while session/meta side panels remain native Swing.
+<!-- Plugin description end -->

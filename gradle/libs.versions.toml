@@ -1,5 +1,7 @@
 [versions]
 # libraries
+jdk = "21"
+acp = "0.18.1"
 junit = "4.13.2"
 opentest4j = "1.3.0"
 
@@ -11,6 +13,7 @@ kover = "0.9.7"
 qodana = "2025.3.2"
 
 [libraries]
+acp = { group = "com.agentclientprotocol", name = "acp", version.ref = "acp" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 opentest4j = { group = "org.opentest4j", name = "opentest4j", version.ref = "opentest4j" }
 

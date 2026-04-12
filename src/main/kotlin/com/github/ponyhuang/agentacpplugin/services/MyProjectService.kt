@@ -1,17 +1,19 @@
 package com.github.ponyhuang.agentacpplugin.services
 
+import com.github.ponyhuang.agentacpplugin.services.render.SessionViewSnapshot
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
-import com.github.ponyhuang.agentacpplugin.MyBundle
 
 @Service(Service.Level.PROJECT)
 class MyProjectService(project: Project) {
+    private val delegate = project.service<AcpProjectService>()
 
-    init {
-        thisLogger().info(MyBundle.message("projectService", project.name))
-        thisLogger().warn("Don't forget to remove all non-needed sample code files with their corresponding registration entries in `plugin.xml`.")
-    }
+    fun connect(commandLine: String) = delegate.connect(commandLine)
 
-    fun getRandomNumber() = (1..100).random()
+    fun submitPrompt(prompt: String) = delegate.submitPrompt(prompt)
+
+    fun selectSession(sessionId: String) = delegate.selectSession(sessionId)
+
+    fun snapshots(): Map<String, SessionViewSnapshot> = delegate.snapshots()
 }
