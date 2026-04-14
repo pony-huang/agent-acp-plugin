@@ -3,11 +3,13 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.ModelComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.PlanComboBoxAction
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBTextArea
+import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.components.BorderLayoutPanel
@@ -19,6 +21,7 @@ import java.awt.event.KeyEvent
 import java.awt.geom.Area
 import java.awt.geom.Rectangle2D
 import java.awt.geom.RoundRectangle2D
+import javax.swing.JButton
 
 /**
  * @author: pony
@@ -43,8 +46,7 @@ class UserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable {
 
     private val agentComboBoxAction = AgentComboBoxAction(project)
     private val agentComboBox = agentComboBoxAction.createCustomComponent(
-        agentComboBoxAction.templatePresentation,
-        "UserInputPanel"
+        agentComboBoxAction.templatePresentation, "UserInputPanel"
     ).apply {
         isOpaque = false
         border = null
@@ -54,8 +56,7 @@ class UserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable {
 
     private val planComboBoxAction = PlanComboBoxAction(project)
     private val planComboBox = planComboBoxAction.createCustomComponent(
-        planComboBoxAction.templatePresentation,
-        "UserInputPanel"
+        planComboBoxAction.templatePresentation, "UserInputPanel"
     ).apply {
         isOpaque = false
         border = null
@@ -65,8 +66,7 @@ class UserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable {
 
     private val modelComboBoxAction = ModelComboBoxAction(project)
     private val modelComboBox = modelComboBoxAction.createCustomComponent(
-        modelComboBoxAction.templatePresentation,
-        "UserInputPanel"
+        modelComboBoxAction.templatePresentation, "UserInputPanel"
     ).apply {
         isOpaque = false
         border = null
@@ -74,22 +74,36 @@ class UserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable {
         minimumSize = java.awt.Dimension(100, 24)
     }
 
+    var sendButton = JButton("Send").apply {
+        icon = AllIcons.Actions.Execute
+        isContentAreaFilled = false
+        border = JBUI.Borders.empty()
+        isOpaque = false
+        addActionListener {
+            // TODO
+        }
+    }
+
     var bottom = panel {
         row {
             cell(
                 agentComboBox
-            )
+            ).align(AlignX.FILL).focused()
             cell(
                 planComboBox
-            )
+            ).align(AlignX.FILL).focused()
             cell(
                 modelComboBox
-            )
+            ).align(AlignX.FILL).focused()
+            cell(
+                sendButton
+            ).align(AlignX.RIGHT).focused()
         }
     }.apply {
         isOpaque = false
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
     }
+
 
     init {
         isOpaque = false
@@ -105,8 +119,7 @@ class UserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             val area = Area(Rectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat()))
             val roundedRect = RoundRectangle2D.Float(
-                0f, 0f, width.toFloat(), height.toFloat(),
-                16f, 16f
+                0f, 0f, width.toFloat(), height.toFloat(), 16f, 16f
             )
             area.intersect(Area(roundedRect))
 
