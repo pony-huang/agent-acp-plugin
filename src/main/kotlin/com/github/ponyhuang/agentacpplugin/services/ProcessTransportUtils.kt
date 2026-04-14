@@ -8,6 +8,7 @@ import com.agentclientprotocol.client.ClientSession
 import com.agentclientprotocol.common.SessionCreationParameters
 import com.agentclientprotocol.model.ClientCapabilities
 import com.agentclientprotocol.model.FileSystemCapability
+import com.agentclientprotocol.model.SessionUpdate
 import com.agentclientprotocol.protocol.Protocol
 import com.agentclientprotocol.transport.StdioTransport
 import com.agentclientprotocol.transport.Transport
@@ -35,7 +36,7 @@ internal object ProcessAcpRuntimeConnector : AcpRuntimeConnector {
         project: Project,
         scope: CoroutineScope,
         descriptor: AcpAgentDescriptor,
-        eventSink: suspend (AcpServiceEvent) -> Unit,
+        sessionUpdateSink: suspend (SessionUpdate) -> Unit,
     ): AcpRuntimeConnection {
         require(descriptor.command.isNotBlank()) { "ACP command must not be empty" }
 
@@ -60,7 +61,7 @@ internal object ProcessAcpRuntimeConnector : AcpRuntimeConnector {
             val operations = TerminalClientSessionOperations(
                 project = project,
                 coroutineScope = scope,
-                eventSink = eventSink,
+                sessionUpdateSink = sessionUpdateSink,
             )
 
             val session = client.newSession(

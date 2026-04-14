@@ -1,11 +1,10 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow
 
+import com.agentclientprotocol.annotations.UnstableApi
 import com.agentclientprotocol.model.ContentBlock
 import com.agentclientprotocol.model.SessionUpdate
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentService
-import com.github.ponyhuang.agentacpplugin.services.AcpConnectionState
 import com.github.ponyhuang.agentacpplugin.services.AcpProjectService
-import com.github.ponyhuang.agentacpplugin.services.AcpServiceEvent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
@@ -13,7 +12,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
@@ -93,7 +91,11 @@ class AcpToolWindowController(
             }
 
             updateComposerState(ToolWindowComposerState.SENDING)
-            service.sendPrompt(prompt).collect { }
+            service.sendPrompt(prompt).collect { event ->
+                // Handle completion via the return value
+            }
+            updateComposerState(ToolWindowComposerState.IDLE)
+            currentThinkingItemId = null
         } catch (t: Throwable) {
             if (t is CancellationException) {
                 throw t
@@ -105,102 +107,23 @@ class AcpToolWindowController(
                     text = t.message ?: "Prompt failed",
                 )
             )
-        } finally {
             updateComposerState(ToolWindowComposerState.IDLE)
         }
     }
 
-    private suspend fun subscribeToService(service: AcpAgentService) {
+    private fun subscribeToService(service: AcpAgentService) {
         if (!subscribedAgents.add(service.descriptor.id)) {
             return
         }
 
         scope.launch {
-            service.connectionState.collectLatest { state ->
-                handleConnectionState(state)
-            }
-        }
-        scope.launch {
-            service.events.collectLatest { event ->
-                handleServiceEvent(event)
+            service.sessionUpdates.collectLatest { update ->
+                handleSessionUpdate(update)
             }
         }
     }
 
-    private fun handleConnectionState(state: AcpConnectionState) {
-        when (state) {
-            is AcpConnectionState.Idle -> Unit
-            is AcpConnectionState.Connecting -> {
-                emitItem(
-                    ToolWindowConversationItem.SystemStatus(
-                        itemId = nextItemId("connecting"),
-                        text = "Connecting to ${state.descriptor.displayName}...",
-                    )
-                )
-            }
-            is AcpConnectionState.Connected -> {
-                emitItem(
-                    ToolWindowConversationItem.SystemStatus(
-                        itemId = nextItemId("connected"),
-                        text = "Connected to ${state.descriptor.displayName}",
-                    )
-                )
-            }
-            is AcpConnectionState.Disconnected -> {
-                emitItem(
-                    ToolWindowConversationItem.SystemStatus(
-                        itemId = nextItemId("disconnected"),
-                        text = buildString {
-                            append("Disconnected from ${state.descriptor.displayName}")
-                            state.reason?.let { append(": $it") }
-                        },
-                    )
-                )
-            }
-            is AcpConnectionState.Failed -> {
-                emitItem(
-                    ToolWindowConversationItem.Error(
-                        itemId = nextItemId("connection-failed"),
-                        text = "Failed to connect ${state.descriptor.displayName}: ${state.message}",
-                    )
-                )
-            }
-        }
-    }
-
-    private fun handleServiceEvent(event: AcpServiceEvent) {
-        when (event) {
-            is AcpServiceEvent.ConnectionStateChanged -> handleConnectionState(event.state)
-            is AcpServiceEvent.SessionUpdateReceived -> handleSessionUpdate(event.update)
-            is AcpServiceEvent.PromptFinished -> {
-                updateComposerState(ToolWindowComposerState.IDLE)
-                currentThinkingItemId = null
-            }
-            is AcpServiceEvent.PromptFailed -> {
-                emitItem(
-                    ToolWindowConversationItem.Error(
-                        itemId = nextItemId("prompt-failed"),
-                        text = event.error.message ?: "Prompt failed",
-                    )
-                )
-                updateComposerState(ToolWindowComposerState.IDLE)
-            }
-            is AcpServiceEvent.PermissionAutoApproved -> {
-                emitItem(
-                    ToolWindowConversationItem.SystemStatus(
-                        itemId = nextItemId("permission"),
-                        text = buildString {
-                            append("Auto-approved permission")
-                            event.toolCallTitle?.let { append(" for $it") }
-                            append(": ${event.option.name}")
-                        },
-                    )
-                )
-            }
-            is AcpServiceEvent.PromptEvent -> Unit
-        }
-    }
-
+    @OptIn(UnstableApi::class)
     private fun handleSessionUpdate(update: SessionUpdate) {
         when (update) {
             is SessionUpdate.UserMessageChunk -> {

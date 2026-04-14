@@ -2,12 +2,14 @@ package com.github.ponyhuang.agentacpplugin.services
 
 import com.agentclientprotocol.common.Event
 import com.agentclientprotocol.model.ContentBlock
+import com.agentclientprotocol.model.SessionUpdate
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal object DefaultAcpAgentServiceFactory : AcpAgentServiceFactory {
     override fun create(
@@ -34,8 +36,7 @@ internal class DefaultAcpAgentService(
     private val lifecycleMutex = Mutex()
     private val promptMutex = Mutex()
 
-    private val _connectionState = MutableStateFlow<AcpConnectionState>(AcpConnectionState.Idle)
-    private val _events = MutableSharedFlow<AcpServiceEvent>(
+    private val _sessionUpdates = MutableSharedFlow<SessionUpdate>(
         replay = 0,
         extraBufferCapacity = 64,
     )
@@ -45,37 +46,21 @@ internal class DefaultAcpAgentService(
     @Volatile
     private var disposed = false
 
-    override val connectionState: StateFlow<AcpConnectionState> = _connectionState.asStateFlow()
-    override val events: SharedFlow<AcpServiceEvent> = _events.asSharedFlow()
+    private val connected = AtomicBoolean(false)
+
+    override val sessionUpdates: SharedFlow<SessionUpdate> = _sessionUpdates.asSharedFlow()
     override val isConnected: Boolean
-        get() = connectionState.value is AcpConnectionState.Connected
+        get() = connected.get()
 
-    override suspend fun connect(): AcpConnectionState.Connected = lifecycleMutex.withLock {
-        ensureUsable()
+    override suspend fun connect() {
+        lifecycleMutex.withLock {
+            ensureUsable()
+            if (connected.get()) return
 
-        val existing = runtimeConnection
-        if (existing != null) {
-            return connectedState(existing)
-        }
-
-        emitState(AcpConnectionState.Connecting(descriptor))
-        return try {
-            val connection = runtimeConnector.connect(project, serviceScope, descriptor, ::emitEvent)
-            runtimeConnection = connection
-            connectedState(connection).also { emitState(it) }
-        } catch (t: Throwable) {
-            if (t is CancellationException) {
-                throw t
+            runtimeConnector.connect(project, serviceScope, descriptor, ::emitSessionUpdate).let {
+                runtimeConnection = it
+                connected.set(true)
             }
-            logger.warn("Failed to connect ACP agent ${descriptor.displayName} for project ${project.name}", t)
-            emitState(
-                AcpConnectionState.Failed(
-                    descriptor = descriptor,
-                    message = t.message ?: "Failed to connect ACP agent ${descriptor.displayName}",
-                    cause = t,
-                )
-            )
-            throw t
         }
     }
 
@@ -91,10 +76,9 @@ internal class DefaultAcpAgentService(
         try {
             promptMutex.withLock {
                 connection.session.prompt(listOf(ContentBlock.Text(prompt))).collect { event ->
-                    emitEvent(AcpServiceEvent.PromptEvent(event))
                     when (event) {
-                        is Event.SessionUpdateEvent -> emitEvent(AcpServiceEvent.SessionUpdateReceived(event.update))
-                        is Event.PromptResponseEvent -> emitEvent(AcpServiceEvent.PromptFinished(event.response))
+                        is Event.SessionUpdateEvent -> emitSessionUpdate(event.update)
+                        else -> { /* ignore other event types */ }
                     }
                     emit(event)
                 }
@@ -103,7 +87,6 @@ internal class DefaultAcpAgentService(
             if (t is CancellationException) {
                 throw t
             }
-            emitEvent(AcpServiceEvent.PromptFailed(prompt, t))
             throw t
         }
     }
@@ -127,6 +110,7 @@ internal class DefaultAcpAgentService(
     private suspend fun disconnectLocked(reason: String) {
         val connection = runtimeConnection ?: return
         runtimeConnection = null
+        connected.set(false)
 
         runCatching {
             connection.close()
@@ -136,30 +120,10 @@ internal class DefaultAcpAgentService(
             }
             logger.warn("Error while disconnecting ACP agent ${descriptor.displayName}", t)
         }
-
-        emitState(
-            AcpConnectionState.Disconnected(
-                descriptor = descriptor,
-                sessionId = connection.session.sessionId.value,
-                reason = reason,
-            )
-        )
     }
 
-    private fun connectedState(connection: AcpRuntimeConnection): AcpConnectionState.Connected =
-        AcpConnectionState.Connected(
-            descriptor = descriptor,
-            sessionId = connection.session.sessionId.value,
-            agentInfo = connection.agentInfo,
-        )
-
-    private suspend fun emitState(state: AcpConnectionState) {
-        _connectionState.value = state
-        _events.emit(AcpServiceEvent.ConnectionStateChanged(state))
-    }
-
-    private suspend fun emitEvent(event: AcpServiceEvent) {
-        _events.emit(event)
+    private suspend fun emitSessionUpdate(update: SessionUpdate) {
+        _sessionUpdates.emit(update)
     }
 
     private fun ensureUsable() {

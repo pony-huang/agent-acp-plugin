@@ -55,8 +55,8 @@ class AcpProjectService(
         service.dispose()
     }
 
-    suspend fun connect(descriptor: AcpAgentDescriptor): AcpConnectionState.Connected {
-        return getOrCreateAgentService(descriptor).connect()
+    suspend fun connect(descriptor: AcpAgentDescriptor) {
+        getOrCreateAgentService(descriptor).connect()
     }
 
     suspend fun getAgentService(agentId: String): AcpAgentService? = registryMutex.withLock {

@@ -38,7 +38,7 @@ import kotlin.text.Charsets.UTF_8
 class TerminalClientSessionOperations(
     private val project: Project,
     private val coroutineScope: CoroutineScope,
-    private val eventSink: suspend (AcpServiceEvent) -> Unit,
+    private val sessionUpdateSink: suspend (SessionUpdate) -> Unit,
 ) : ClientSessionOperations, FileSystemOperations, TerminalOperations {
     private val activeTerminals = ConcurrentHashMap<String, ActiveTerminal>()
 
@@ -61,7 +61,6 @@ class TerminalClientSessionOperations(
         } ?: permissions.firstOrNull()
             ?: error("ACP agent requested permissions with no options")
 
-        eventSink(AcpServiceEvent.PermissionAutoApproved(toolCall.title, selectedOption))
         return RequestPermissionResponse(RequestPermissionOutcome.Selected(selectedOption.optionId), _meta)
     }
 
@@ -69,7 +68,7 @@ class TerminalClientSessionOperations(
         notification: SessionUpdate,
         _meta: JsonElement?,
     ) {
-        eventSink(AcpServiceEvent.SessionUpdateReceived(notification))
+        sessionUpdateSink(notification)
     }
 
     override suspend fun fsReadTextFile(

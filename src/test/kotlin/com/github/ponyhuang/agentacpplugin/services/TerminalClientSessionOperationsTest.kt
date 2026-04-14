@@ -16,11 +16,11 @@ import java.util.UUID
 class TerminalClientSessionOperationsTest : BasePlatformTestCase() {
 
     fun testPermissionAutoApprovePrefersAllowOption() = runBlocking {
-        val events = mutableListOf<AcpServiceEvent>()
+        val updates = mutableListOf<SessionUpdate>()
         val operations = TerminalClientSessionOperations(
             project = project,
             coroutineScope = testScope,
-            eventSink = { events += it },
+            sessionUpdateSink = { updates += it },
         )
 
         val response = operations.requestPermissions(
@@ -45,24 +45,15 @@ class TerminalClientSessionOperationsTest : BasePlatformTestCase() {
 
         val outcome = response.outcome as RequestPermissionOutcome.Selected
         assertEquals("allow", outcome.optionId.value)
-        assertEquals(
-            AcpServiceEvent.PermissionAutoApproved(
-                toolCallTitle = "write file",
-                option = PermissionOption(
-                    optionId = PermissionOptionId("allow"),
-                    name = "Allow once",
-                    kind = PermissionOptionKind.ALLOW_ONCE,
-                ),
-            ),
-            events.single(),
-        )
+        // No SessionUpdate is emitted for permission auto-approval
+        assertTrue(updates.isEmpty())
     }
 
     fun testReadAndWriteUseProjectRelativePaths() = runBlocking {
         val operations = TerminalClientSessionOperations(
             project = project,
             coroutineScope = testScope,
-            eventSink = {},
+            sessionUpdateSink = {},
         )
         val relativePath = "build/test-${UUID.randomUUID()}.txt"
 
