@@ -1,150 +1,181 @@
-package com.agentclientprotocol.samples
+package com.github.ponyhuang.agentacpplugin.services
 
+import com.agentclientprotocol.agent.AgentInfo
+import com.agentclientprotocol.annotations.UnstableApi
 import com.agentclientprotocol.client.Client
 import com.agentclientprotocol.client.ClientInfo
-import com.agentclientprotocol.common.Event
+import com.agentclientprotocol.client.ClientSession
 import com.agentclientprotocol.common.SessionCreationParameters
 import com.agentclientprotocol.model.ClientCapabilities
-import com.agentclientprotocol.model.ContentBlock
 import com.agentclientprotocol.model.FileSystemCapability
-import com.agentclientprotocol.model.StopReason
 import com.agentclientprotocol.protocol.Protocol
 import com.agentclientprotocol.transport.StdioTransport
 import com.agentclientprotocol.transport.Transport
-import com.github.ponyhuang.agentacpplugin.services.AcpProjectService
-import com.github.ponyhuang.agentacpplugin.services.TerminalClientSessionOperations
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
+import java.io.File
 import java.nio.file.Paths
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.absolutePathString
 
-private val logger = Logger.getInstance(AcpProjectService::class.java)
+private val logger = Logger.getInstance(ProcessAcpRuntimeConnector::class.java)
 
-fun createProcessStdioTransport(coroutineScope: CoroutineScope, vararg command: String): Transport {
-    val process = ProcessBuilder(*command)
+internal object ProcessAcpRuntimeConnector : AcpRuntimeConnector {
+    override suspend fun connect(
+        project: Project,
+        scope: CoroutineScope,
+        command: List<String>,
+        eventSink: suspend (AcpServiceEvent) -> Unit,
+    ): AcpRuntimeConnection {
+        require(command.isNotEmpty()) { "ACP command must not be empty" }
+
+        val processHandle = createProcessStdioTransport(scope, project, command)
+        try {
+            val protocol = Protocol(scope, processHandle.transport)
+            val client = Client(protocol)
+            protocol.start()
+
+            val agentInfo = client.initialize(
+                ClientInfo(
+                    capabilities = ClientCapabilities(
+                        fs = FileSystemCapability(
+                            readTextFile = true,
+                            writeTextFile = true,
+                        ),
+                        terminal = true,
+                    ),
+                )
+            )
+
+            val operations = TerminalClientSessionOperations(
+                project = project,
+                coroutineScope = scope,
+                eventSink = eventSink,
+            )
+
+            val session = client.newSession(
+                SessionCreationParameters(projectSessionRoot(project), emptyList())
+            ) { _, _ -> operations }
+
+            return ProcessAcpRuntimeConnection(
+                command = command,
+                processHandle = processHandle,
+                protocol = protocol,
+                client = client,
+                agentInfo = agentInfo,
+                session = session,
+                operations = operations,
+            )
+        } catch (t: Throwable) {
+            processHandle.close()
+            throw t
+        }
+    }
+}
+
+internal data class ProcessAcpRuntimeConnection(
+    override val command: List<String>,
+    private val processHandle: ProcessTransportHandle,
+    private val protocol: Protocol,
+    override val client: Client,
+    override val agentInfo: AgentInfo,
+    override val session: ClientSession,
+    private val operations: TerminalClientSessionOperations,
+) : AcpRuntimeConnection {
+
+    @OptIn(UnstableApi::class)
+    override suspend fun close() {
+        runCatching {
+            operations.close()
+        }.onFailure {
+            logger.warn("Failed to close ACP terminal operations", it)
+        }
+
+        runCatching {
+            if (agentInfo.capabilities.sessionCapabilities.close != null) {
+                session.close()
+            } else {
+                session.cancel()
+            }
+        }.onFailure {
+            logger.warn("Failed to close ACP session ${session.sessionId}", it)
+        }
+
+        runCatching {
+            protocol.close()
+        }.onFailure {
+            logger.warn("Failed to close ACP protocol for session ${session.sessionId}", it)
+        }
+
+        processHandle.close()
+    }
+}
+
+internal data class ProcessTransportHandle(
+    val process: Process,
+    val transport: Transport,
+    private val stderrJob: Job,
+) {
+    suspend fun close() {
+        transport.close()
+        withContext(NonCancellable) {
+            runCatching { process.errorStream.close() }
+            stderrJob.cancel()
+        }
+        if (process.isAlive) {
+            process.destroy()
+            withContext(Dispatchers.IO) {
+                if (!process.waitFor(1, TimeUnit.SECONDS)) {
+                    process.destroyForcibly()
+                    process.waitFor(1, TimeUnit.SECONDS)
+                }
+            }
+        }
+    }
+}
+
+internal fun createProcessStdioTransport(
+    coroutineScope: CoroutineScope,
+    project: Project,
+    command: List<String>,
+): ProcessTransportHandle {
+    val process = ProcessBuilder(command)
+        .directory(File(projectSessionRoot(project)))
         .redirectInput(ProcessBuilder.Redirect.PIPE)
         .redirectOutput(ProcessBuilder.Redirect.PIPE)
         .redirectError(ProcessBuilder.Redirect.PIPE)
         .start()
+
+    val stderrJob = coroutineScope.launch(Dispatchers.IO) {
+        process.errorStream.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                logger.warn("[ACP stderr] $line")
+            }
+        }
+    }
+
     val stdin = process.outputStream.asSink().buffered()
     val stdout = process.inputStream.asSource().buffered()
-    return StdioTransport(
+    val transport = StdioTransport(
         parentScope = coroutineScope,
         ioDispatcher = Dispatchers.IO,
         input = stdout,
-        output = stdin
+        output = stdin,
+        name = "ACP:${command.first()}",
     )
+    return ProcessTransportHandle(process, transport, stderrJob)
 }
 
-
-suspend fun CoroutineScope.runTerminalClient(transport: Transport) {
-    // Create client-side connection
-    val protocol = Protocol(this, transport)
-    val client = Client(
-        protocol
-    )
-
-    logger.info("Starting Gemini agent process...")
-
-    // Connect to agent and start transport
-    protocol.start()
-
-    logger.info("Connected to Gemini agent, initializing...")
-
-    val agentInfo = client.initialize(
-        ClientInfo(
-            capabilities = ClientCapabilities(
-                fs = FileSystemCapability(
-                    readTextFile = true,
-                    writeTextFile = true
-                ),
-                terminal = true
-            )
-        )
-    )
-    println("Agent info: $agentInfo")
-
-    println()
-
-    // Create a session
-    val session = client.newSession(
-        SessionCreationParameters(Paths.get("").absolutePathString(), emptyList())
-    ) { session, _ -> TerminalClientSessionOperations() }
-
-    println("=== Session created: ${session.sessionId} ===")
-    println("Type your messages below. Use 'exit', 'quit', or Ctrl+C to stop.")
-    println("=".repeat(60))
-    println()
-
-    try {
-        // Start interactive chat loop
-        while (true) {
-            print("You: ")
-            val userInput = readLine()
-
-            // Check for exit conditions
-            if (userInput == null || userInput.lowercase() in listOf("exit", "quit", "bye")) {
-                println("\n=== Goodbye! ===")
-                break
-            }
-
-            // Skip empty inputs
-            if (userInput.isBlank()) {
-                continue
-            }
-
-            try {
-                session.prompt(listOf(ContentBlock.Text(userInput.trim()))).collect { event ->
-                    when (event) {
-                        is Event.SessionUpdateEvent -> {
-                            event.update.render()
-                        }
-
-                        is Event.PromptResponseEvent -> {
-                            when (event.response.stopReason) {
-                                StopReason.END_TURN -> {
-                                    // Normal completion - no action needed
-                                }
-
-                                StopReason.MAX_TOKENS -> {
-                                    println("\n[Response truncated due to token limit]")
-                                }
-
-                                StopReason.MAX_TURN_REQUESTS -> {
-                                    println("\n[Turn limit reached]")
-                                }
-
-                                StopReason.REFUSAL -> {
-                                    println("\n[Agent declined to respond]")
-                                }
-
-                                StopReason.CANCELLED -> {
-                                    println("\n[Response was cancelled]")
-                                }
-                            }
-                        }
-                    }
-                }
-
-
-
-                println() // Extra newline for readability
-
-            } catch (e: Exception) {
-                println("\n[Error: ${e.message}]")
-                logger.error("Error during chat interaction")
-            }
-        }
-
-    } catch (e: Exception) {
-        logger.error("Client error occurred")
-        println("Error: ${e.message}")
-        e.printStackTrace()
-    } finally {
-        logger.info("Gemini ACP client shutting down")
-    }
+internal fun projectSessionRoot(project: Project): String {
+    return project.basePath?.let { Paths.get(it).toAbsolutePath().normalize().absolutePathString() }
+        ?: Paths.get("").toAbsolutePath().normalize().absolutePathString()
 }
