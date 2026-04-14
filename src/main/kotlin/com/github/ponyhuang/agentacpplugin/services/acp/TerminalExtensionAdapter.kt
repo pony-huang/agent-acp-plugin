@@ -7,6 +7,8 @@ import com.agentclientprotocol.model.KillTerminalCommandResponse
 import com.agentclientprotocol.model.ReleaseTerminalResponse
 import com.agentclientprotocol.model.TerminalOutputResponse
 import com.agentclientprotocol.model.WaitForTerminalExitResponse
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import java.nio.file.Path
 import java.util.UUID
@@ -28,7 +30,9 @@ class TerminalExtensionAdapter(
         val builder = ProcessBuilder(listOf(command) + args)
         builder.directory((cwd?.let(workspaceRoot::resolve) ?: workspaceRoot).toFile())
         env.forEach { builder.environment()[it.name] = it.value }
-        val process = builder.start()
+        val process = withContext(Dispatchers.IO) {
+            builder.start()
+        }
         val terminalId = UUID.randomUUID().toString()
         terminals[terminalId] = process
         return CreateTerminalResponse(terminalId)

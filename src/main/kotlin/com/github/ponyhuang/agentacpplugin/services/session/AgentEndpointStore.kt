@@ -30,7 +30,7 @@ class AgentEndpointStore {
     }
 
     fun createSession(endpointId: String, sessionId: String, title: String): ConversationSessionState {
-        val session = ConversationSessionState(sessionId = sessionId, endpointId = endpointId, title = title)
+        val session = ConversationSessionState(sessionId = sessionId, endpointId = endpointId, title = title, lastActivityAt = Instant.now())
         sessions[sessionId] = session
         val endpoint = endpoints.getValue(endpointId)
         endpoints[endpointId] = endpoint.copy(activeSessionIds = endpoint.activeSessionIds + sessionId)
@@ -38,7 +38,7 @@ class AgentEndpointStore {
     }
 
     fun updateSession(sessionId: String, update: (ConversationSessionState) -> ConversationSessionState): ConversationSessionState {
-        val next = update(sessions.getValue(sessionId)).copy(lastVisibleSnapshotAt = Instant.now())
+        val next = update(sessions.getValue(sessionId)).copy(lastActivityAt = Instant.now())
         sessions[sessionId] = next
         return next
     }
@@ -55,5 +55,5 @@ class AgentEndpointStore {
 
     fun allEndpoints(): List<AgentEndpointState> = endpoints.values.sortedBy { it.displayName }
 
-    fun allSessions(): List<ConversationSessionState> = sessions.values.sortedByDescending { it.lastVisibleSnapshotAt }
+    fun allSessions(): List<ConversationSessionState> = sessions.values.sortedByDescending { it.lastActivityAt }
 }

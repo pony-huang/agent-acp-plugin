@@ -3,24 +3,22 @@ package com.github.ponyhuang.agentacpplugin.services.render
 import com.github.ponyhuang.agentacpplugin.services.session.AgentConnectionStatus
 import com.github.ponyhuang.agentacpplugin.services.session.AgentEndpointState
 import com.github.ponyhuang.agentacpplugin.services.session.ConversationSessionState
+import com.github.ponyhuang.agentacpplugin.services.session.SessionStatus
 import com.github.ponyhuang.agentacpplugin.services.session.ToolCallState
-import java.util.concurrent.ConcurrentHashMap
 
-class SessionViewSnapshotStore {
-    private val snapshots = ConcurrentHashMap<String, SessionViewSnapshot>()
-
-    fun rebuild(
+class SessionViewStateAssembler {
+    fun assemble(
         endpoint: AgentEndpointState,
         session: ConversationSessionState,
         timeline: List<TimelineItem>,
         toolCalls: List<ToolCallState>,
-    ): SessionViewSnapshot {
+    ): SessionViewState {
         val banner = when {
-            session.bannerMessage != null -> BannerState(session.bannerMessage, session.sessionStatus.name == "DEGRADED")
+            session.bannerMessage != null -> BannerState(session.bannerMessage, session.sessionStatus == SessionStatus.DEGRADED)
             endpoint.connectionStatus == AgentConnectionStatus.FAILED && endpoint.lastErrorSummary != null -> BannerState(endpoint.lastErrorSummary, true)
             else -> null
         }
-        val snapshot = SessionViewSnapshot(
+        return SessionViewState(
             sessionId = session.sessionId,
             headerState = SessionHeaderState(
                 title = session.title,
@@ -47,16 +45,10 @@ class SessionViewSnapshotStore {
                     item
                 }
             },
-            composerEnabled = endpoint.connectionStatus == AgentConnectionStatus.CONNECTED && session.sessionStatus != com.github.ponyhuang.agentacpplugin.services.session.SessionStatus.CLOSED,
+            composerEnabled = endpoint.connectionStatus == AgentConnectionStatus.CONNECTED && session.sessionStatus != SessionStatus.CLOSED,
             bannerState = banner,
             availableCommands = session.availableCommands,
             configOptions = session.configOptions,
         )
-        snapshots[session.sessionId] = snapshot
-        return snapshot
     }
-
-    fun get(sessionId: String): SessionViewSnapshot? = snapshots[sessionId]
-
-    fun all(): Map<String, SessionViewSnapshot> = snapshots.toMap()
 }

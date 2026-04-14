@@ -16,7 +16,7 @@ data class ConversationSessionState(
     val sessionStatus: SessionStatus = SessionStatus.IDLE,
     val turns: List<ConversationTurnState> = emptyList(),
     val selectedTurnId: String? = null,
-    val lastVisibleSnapshotAt: Instant? = null,
+    val lastActivityAt: Instant = Instant.now(),
     val unreadStreamingIndicator: Boolean = false,
     val currentModeId: String? = null,
     val usageSummary: String? = null,

@@ -13,7 +13,7 @@ data class BannerState(
     val isError: Boolean,
 )
 
-data class SessionViewSnapshot(
+data class SessionViewState(
     val sessionId: String,
     val headerState: SessionHeaderState,
     val visibleTimeline: List<TimelineItem>,

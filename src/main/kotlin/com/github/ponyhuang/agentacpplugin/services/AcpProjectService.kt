@@ -3,13 +3,13 @@ package com.github.ponyhuang.agentacpplugin.services
 import com.agentclientprotocol.model.SessionUpdate
 import com.github.ponyhuang.agentacpplugin.services.acp.AcpClientFacade
 import com.github.ponyhuang.agentacpplugin.services.acp.AcpSessionCoordinator
+import com.github.ponyhuang.agentacpplugin.services.acp.PendingPermissionRequest
 import com.github.ponyhuang.agentacpplugin.services.acp.PermissionRequestHandler
 import com.github.ponyhuang.agentacpplugin.services.acp.SessionUpdateIngress
 import com.github.ponyhuang.agentacpplugin.services.render.RenderIntent
 import com.github.ponyhuang.agentacpplugin.services.render.SessionUpdateRenderMapper
-import com.github.ponyhuang.agentacpplugin.services.render.SessionViewSnapshot
-import com.github.ponyhuang.agentacpplugin.services.render.SessionViewSnapshotStore
-import com.github.ponyhuang.agentacpplugin.services.render.UiSnapshotPublisher
+import com.github.ponyhuang.agentacpplugin.services.render.SessionViewState
+import com.github.ponyhuang.agentacpplugin.services.render.SessionViewStateAssembler
 import com.github.ponyhuang.agentacpplugin.services.session.AgentConnectionStatus
 import com.github.ponyhuang.agentacpplugin.services.session.AgentEndpointStore
 import com.github.ponyhuang.agentacpplugin.services.session.ConversationTurnStore
@@ -22,12 +22,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.UUID
 
-internal interface ProjectSessionCoordinator {
+interface ProjectSessionCoordinator {
     suspend fun connect(
         endpointId: String,
         endpointName: String,
@@ -46,17 +49,17 @@ internal interface ProjectSessionCoordinator {
 
 @Service(Service.Level.PROJECT)
 class AcpProjectService private constructor(
-    private val project: Project,
-    dependencies: ServiceDependencies,
+    val project: Project,
+    val dependencies: ServiceDependencies,
 ) : Disposable, SessionUpdateIngress {
     private val scope = dependencies.scope
     private val endpointStore = dependencies.endpointStore
     private val turnStore = dependencies.turnStore
-    private val snapshotStore = dependencies.snapshotStore
-    private val snapshotPublisher = dependencies.snapshotPublisher
+    private val sessionViewAssembler = dependencies.sessionViewAssembler
     private val mapper = dependencies.mapper
     private val permissionRequestHandler = dependencies.permissionRequestHandler
     private val sessionCoordinator = dependencies.sessionCoordinator
+    private val _sessionViews = MutableStateFlow<Map<String, SessionViewState>>(emptyMap())
 
     constructor(project: Project) : this(project, createDefaultDependencies(project))
 
@@ -66,8 +69,7 @@ class AcpProjectService private constructor(
         sessionCoordinator: ProjectSessionCoordinator,
         endpointStore: AgentEndpointStore = AgentEndpointStore(),
         turnStore: ConversationTurnStore = ConversationTurnStore(),
-        snapshotStore: SessionViewSnapshotStore = SessionViewSnapshotStore(),
-        snapshotPublisher: UiSnapshotPublisher = UiSnapshotPublisher(),
+        sessionViewAssembler: SessionViewStateAssembler = SessionViewStateAssembler(),
         mapper: SessionUpdateRenderMapper = SessionUpdateRenderMapper(),
         permissionRequestHandler: PermissionRequestHandler = PermissionRequestHandler(),
     ) : this(
@@ -76,8 +78,7 @@ class AcpProjectService private constructor(
             scope = scope,
             endpointStore = endpointStore,
             turnStore = turnStore,
-            snapshotStore = snapshotStore,
-            snapshotPublisher = snapshotPublisher,
+            sessionViewAssembler = sessionViewAssembler,
             mapper = mapper,
             permissionRequestHandler = permissionRequestHandler,
             sessionCoordinator = sessionCoordinator,
@@ -87,13 +88,9 @@ class AcpProjectService private constructor(
     @Volatile
     private var selectedSessionId: String? = null
 
-    fun addSnapshotListener(listener: (Map<String, SessionViewSnapshot>) -> Unit): () -> Unit =
-        snapshotPublisher.addListener(listener)
+    val sessionViews: StateFlow<Map<String, SessionViewState>> = _sessionViews.asStateFlow()
 
-    fun addPermissionListener(listener: (com.github.ponyhuang.agentacpplugin.services.acp.PendingPermissionRequest?) -> Unit): () -> Unit =
-        permissionRequestHandler.addListener(listener)
-
-    fun snapshots(): Map<String, SessionViewSnapshot> = snapshotPublisher.latest()
+    val pendingPermissionRequest: StateFlow<PendingPermissionRequest?> = permissionRequestHandler.pendingRequest
 
     fun selectedSessionId(): String? = selectedSessionId
 
@@ -106,7 +103,7 @@ class AcpProjectService private constructor(
         val endpointName = trimmed.substringBefore(' ')
         endpointStore.createEndpoint(endpointId, endpointName)
         endpointStore.updateEndpoint(endpointId, AgentConnectionStatus.CONNECTING)
-        publishSnapshots()
+        updateSessionViews()
         scope.launch {
             runCatching {
                 val workspaceRoot = project.basePath?.let(Paths::get) ?: Path.of(".")
@@ -121,10 +118,10 @@ class AcpProjectService private constructor(
                 endpointStore.updateEndpoint(endpointId, AgentConnectionStatus.CONNECTED, capabilitiesSummary = "ACP")
                 endpointStore.createSession(endpointId, sessionId, title = endpointName)
                 selectedSessionId = sessionId
-                publishSnapshots()
+                updateSessionViews()
             }.onFailure { error ->
                 endpointStore.updateEndpoint(endpointId, AgentConnectionStatus.FAILED, errorSummary = error.message ?: "Connection failed")
-                publishSnapshots()
+                updateSessionViews()
             }
         }
     }
@@ -143,7 +140,7 @@ class AcpProjectService private constructor(
                 bannerMessage = null,
             )
         }
-        publishSnapshots()
+        updateSessionViews()
         scope.launch {
             runCatching {
                 sessionCoordinator.submitPrompt(sessionId, text, this@AcpProjectService)
@@ -164,7 +161,7 @@ class AcpProjectService private constructor(
     fun selectSession(sessionId: String) {
         selectedSessionId = sessionId
         endpointStore.updateSession(sessionId) { it.copy(unreadStreamingIndicator = false) }
-        publishSnapshots()
+        updateSessionViews()
     }
 
     fun disconnectSession(sessionId: String) {
@@ -172,7 +169,7 @@ class AcpProjectService private constructor(
         endpointStore.updateSession(sessionId) {
             it.copy(sessionStatus = SessionStatus.CLOSED, bannerMessage = "Session disconnected")
         }
-        publishSnapshots()
+        updateSessionViews()
     }
 
     override fun onSessionUpdate(sessionId: String, update: SessionUpdate) {
@@ -230,20 +227,20 @@ class AcpProjectService private constructor(
                 }
             }
         }
-        publishSnapshots()
+        updateSessionViews()
     }
 
-    private fun publishSnapshots() {
-        val snapshots = endpointStore.allSessions().associate { session ->
+    private fun updateSessionViews() {
+        val sessionViews = endpointStore.allSessions().associate { session ->
             val endpoint = requireNotNull(endpointStore.getEndpoint(session.endpointId))
-            session.sessionId to snapshotStore.rebuild(
+            session.sessionId to sessionViewAssembler.assemble(
                 endpoint = endpoint,
                 session = session,
                 timeline = turnStore.timeline(session.sessionId),
                 toolCalls = turnStore.toolCalls(session.sessionId),
             )
         }
-        snapshotPublisher.publish(snapshots)
+        _sessionViews.value = sessionViews
     }
 
     private companion object {
@@ -255,8 +252,7 @@ class AcpProjectService private constructor(
                 scope = scope,
                 endpointStore = AgentEndpointStore(),
                 turnStore = ConversationTurnStore(),
-                snapshotStore = SessionViewSnapshotStore(),
-                snapshotPublisher = UiSnapshotPublisher(),
+                sessionViewAssembler = SessionViewStateAssembler(),
                 mapper = SessionUpdateRenderMapper(),
                 permissionRequestHandler = permissionRequestHandler,
                 sessionCoordinator = createProjectSessionCoordinator(scope, registry),
@@ -303,12 +299,11 @@ class AcpProjectService private constructor(
     }
 }
 
-private data class ServiceDependencies(
+data class ServiceDependencies(
     val scope: CoroutineScope,
     val endpointStore: AgentEndpointStore,
     val turnStore: ConversationTurnStore,
-    val snapshotStore: SessionViewSnapshotStore,
-    val snapshotPublisher: UiSnapshotPublisher,
+    val sessionViewAssembler: SessionViewStateAssembler,
     val mapper: SessionUpdateRenderMapper,
     val permissionRequestHandler: PermissionRequestHandler,
     val sessionCoordinator: ProjectSessionCoordinator,

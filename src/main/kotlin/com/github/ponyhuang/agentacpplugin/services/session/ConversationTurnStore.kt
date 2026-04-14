@@ -1,7 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.services.session
 
 import com.github.ponyhuang.agentacpplugin.services.render.RenderIntent
-import com.github.ponyhuang.agentacpplugin.services.render.SessionViewSnapshotStore
 import com.github.ponyhuang.agentacpplugin.services.render.TimelineDisplayState
 import com.github.ponyhuang.agentacpplugin.services.render.TimelineItem
 import com.github.ponyhuang.agentacpplugin.services.render.TimelineItemType

@@ -5,8 +5,10 @@ import com.agentclientprotocol.model.PermissionOptionKind
 import com.agentclientprotocol.model.RequestPermissionOutcome
 import com.agentclientprotocol.model.RequestPermissionResponse
 import com.agentclientprotocol.model.SessionUpdate
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.JsonElement
-import java.util.concurrent.CopyOnWriteArrayList
 
 data class PendingPermissionRequest(
     val toolTitle: String,
@@ -14,38 +16,22 @@ data class PendingPermissionRequest(
 )
 
 class PermissionRequestHandler {
-    private val listeners = CopyOnWriteArrayList<(PendingPermissionRequest?) -> Unit>()
-    @Volatile
-    private var latest: PendingPermissionRequest? = null
+    private val _pendingRequest = MutableStateFlow<PendingPermissionRequest?>(null)
+    val pendingRequest: StateFlow<PendingPermissionRequest?> = _pendingRequest.asStateFlow()
 
-    suspend fun request(
+    fun request(
         toolCall: SessionUpdate.ToolCallUpdate,
         permissions: List<PermissionOption>,
         _meta: JsonElement?,
     ): RequestPermissionResponse {
-        latest = PendingPermissionRequest(
+        _pendingRequest.value = PendingPermissionRequest(
             toolTitle = toolCall.title ?: "Tool",
             options = permissions.map { it.name },
         )
-        notifyListeners()
         val selected = permissions.firstOrNull { it.kind == PermissionOptionKind.ALLOW_ONCE }
             ?: permissions.firstOrNull { it.kind == PermissionOptionKind.REJECT_ONCE }
             ?: permissions.first()
-        latest = null
-        notifyListeners()
+        _pendingRequest.value = null
         return RequestPermissionResponse(RequestPermissionOutcome.Selected(selected.optionId), _meta)
-    }
-
-    fun latest(): PendingPermissionRequest? = latest
-
-    fun addListener(listener: (PendingPermissionRequest?) -> Unit): () -> Unit {
-        listeners += listener
-        listener(latest)
-        return { listeners -= listener }
-    }
-
-    private fun notifyListeners() {
-        val snapshot = latest
-        listeners.forEach { it(snapshot) }
     }
 }
