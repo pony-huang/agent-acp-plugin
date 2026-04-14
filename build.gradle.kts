@@ -53,6 +53,24 @@ dependencies {
     }
 }
 
+// Force kotlinx-coroutines to a version compatible with IntelliJ Platform 2025.2.6.1
+// The IntelliJ test framework requires coroutines 1.9.0+ for runBlockingWithParallelismCompensation
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains.kotlinx" && requested.name.startsWith("kotlinx-coroutines")) {
+            useVersion("1.10.2")
+        }
+    }
+}
+
+// Exclude bundled kotlinx-coroutines from intellijPlatform to avoid conflicts with forced version
+configurations.configureEach {
+    if (name.contains("intellijPlatform") || name.contains("testRuntime")) {
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core-jvm")
+    }
+}
+
 // Configure IntelliJ Platform Gradle Plugin - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-extension.html
 intellijPlatform {
     pluginConfiguration {
@@ -136,6 +154,22 @@ tasks {
 
     publishPlugin {
         dependsOn(patchChangelog)
+    }
+}
+
+val requestedTestPatterns = gradle.startParameter.taskRequests
+    .flatMap { it.args }
+    .windowed(size = 2, step = 1, partialWindows = false)
+    .filter { it.firstOrNull() == "--tests" }
+    .mapNotNull { it.getOrNull(1) }
+
+tasks.withType<Test>().configureEach {
+    val liveAcpTestClass = "com.github.ponyhuang.agentacpplugin.services.acp.AcpClientFacadeLiveIntegrationTest"
+    val requestedLiveAcpTest = requestedTestPatterns.any { pattern ->
+        pattern == liveAcpTestClass || pattern.startsWith("$liveAcpTestClass.")
+    }
+    if (requestedLiveAcpTest) {
+        systemProperty("agentacp.realAgentTests", "true")
     }
 }
 

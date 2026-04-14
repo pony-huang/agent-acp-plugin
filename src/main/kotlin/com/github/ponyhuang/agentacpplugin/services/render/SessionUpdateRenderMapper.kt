@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.services.render
 
+import com.agentclientprotocol.annotations.UnstableApi
 import com.agentclientprotocol.model.SessionUpdate
 import com.github.ponyhuang.agentacpplugin.services.session.ToolLifecycleStatus
 import com.github.ponyhuang.agentacpplugin.services.session.TurnCompletionReason
@@ -7,6 +8,7 @@ import com.github.ponyhuang.agentacpplugin.services.session.TurnCompletionReason
 class SessionUpdateRenderMapper(
     private val contentBlockRenderer: ContentBlockRenderer = ContentBlockRenderer(),
 ) {
+    @OptIn(UnstableApi::class)
     fun map(update: SessionUpdate): List<RenderIntent> {
         return when (update) {
             is SessionUpdate.AgentMessageChunk -> listOf(

@@ -13,7 +13,6 @@ import com.github.ponyhuang.agentacpplugin.services.render.UiSnapshotPublisher
 import com.github.ponyhuang.agentacpplugin.services.session.AgentConnectionStatus
 import com.github.ponyhuang.agentacpplugin.services.session.AgentEndpointStore
 import com.github.ponyhuang.agentacpplugin.services.session.ConversationTurnStore
-import com.github.ponyhuang.agentacpplugin.services.session.SessionRegistry
 import com.github.ponyhuang.agentacpplugin.services.session.SessionStatus
 import com.github.ponyhuang.agentacpplugin.services.session.TurnCompletionReason
 import com.intellij.openapi.Disposable
@@ -28,19 +27,101 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.UUID
 
+internal data class ConnectedSession(
+    val sessionId: String,
+)
+
+internal interface ProjectSessionCoordinator {
+    suspend fun connect(
+        endpointId: String,
+        endpointName: String,
+        commandLine: String,
+        workspaceRoot: Path,
+        ingress: SessionUpdateIngress,
+        permissionRequestHandler: PermissionRequestHandler,
+    ): ConnectedSession
+
+    suspend fun submitPrompt(sessionId: String, prompt: String, ingress: SessionUpdateIngress)
+
+    suspend fun cancel(sessionId: String)
+
+    fun disconnect(sessionId: String)
+}
+
+private class DefaultProjectSessionCoordinator(
+    private val delegate: AcpSessionCoordinator,
+) : ProjectSessionCoordinator {
+    override suspend fun connect(
+        endpointId: String,
+        endpointName: String,
+        commandLine: String,
+        workspaceRoot: Path,
+        ingress: SessionUpdateIngress,
+        permissionRequestHandler: PermissionRequestHandler,
+    ): ConnectedSession {
+        val registered = delegate.connect(
+            endpointId = endpointId,
+            endpointName = endpointName,
+            commandLine = commandLine,
+            workspaceRoot = workspaceRoot,
+            ingress = ingress,
+            permissionRequestHandler = permissionRequestHandler,
+        )
+        return ConnectedSession(registered.sessionId.toString())
+    }
+
+    override suspend fun submitPrompt(sessionId: String, prompt: String, ingress: SessionUpdateIngress) {
+        delegate.submitPrompt(sessionId, prompt, ingress)
+    }
+
+    override suspend fun cancel(sessionId: String) {
+        delegate.cancel(sessionId)
+    }
+
+    override fun disconnect(sessionId: String) {
+        delegate.disconnect(sessionId)
+    }
+}
+
 @Service(Service.Level.PROJECT)
-class AcpProjectService(
+class AcpProjectService private constructor(
     private val project: Project,
+    dependencies: ServiceDependencies,
 ) : Disposable, SessionUpdateIngress {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val endpointStore = AgentEndpointStore()
-    private val turnStore = ConversationTurnStore()
-    private val snapshotStore = SessionViewSnapshotStore()
-    private val snapshotPublisher = UiSnapshotPublisher()
-    private val mapper = SessionUpdateRenderMapper()
-    private val registry = SessionRegistry()
-    private val permissionRequestHandler = PermissionRequestHandler()
-    private val sessionCoordinator = AcpSessionCoordinator(AcpClientFacade(scope, project, registry))
+    private val scope = dependencies.scope
+    private val endpointStore = dependencies.endpointStore
+    private val turnStore = dependencies.turnStore
+    private val snapshotStore = dependencies.snapshotStore
+    private val snapshotPublisher = dependencies.snapshotPublisher
+    private val mapper = dependencies.mapper
+    private val permissionRequestHandler = dependencies.permissionRequestHandler
+    private val sessionCoordinator = dependencies.sessionCoordinator
+
+    constructor(project: Project) : this(project, createDefaultDependencies(project))
+
+    internal constructor(
+        project: Project,
+        scope: CoroutineScope,
+        sessionCoordinator: ProjectSessionCoordinator,
+        endpointStore: AgentEndpointStore = AgentEndpointStore(),
+        turnStore: ConversationTurnStore = ConversationTurnStore(),
+        snapshotStore: SessionViewSnapshotStore = SessionViewSnapshotStore(),
+        snapshotPublisher: UiSnapshotPublisher = UiSnapshotPublisher(),
+        mapper: SessionUpdateRenderMapper = SessionUpdateRenderMapper(),
+        permissionRequestHandler: PermissionRequestHandler = PermissionRequestHandler(),
+    ) : this(
+        project = project,
+        dependencies = ServiceDependencies(
+            scope = scope,
+            endpointStore = endpointStore,
+            turnStore = turnStore,
+            snapshotStore = snapshotStore,
+            snapshotPublisher = snapshotPublisher,
+            mapper = mapper,
+            permissionRequestHandler = permissionRequestHandler,
+            sessionCoordinator = sessionCoordinator,
+        ),
+    )
 
     @Volatile
     private var selectedSessionId: String? = null
@@ -68,7 +149,7 @@ class AcpProjectService(
         scope.launch {
             runCatching {
                 val workspaceRoot = project.basePath?.let(Paths::get) ?: Path.of(".")
-                val registered = sessionCoordinator.connect(
+                val connected = sessionCoordinator.connect(
                     endpointId = endpointId,
                     endpointName = endpointName,
                     commandLine = trimmed,
@@ -76,7 +157,7 @@ class AcpProjectService(
                     ingress = this@AcpProjectService,
                     permissionRequestHandler = permissionRequestHandler,
                 )
-                val sessionKey = registered.sessionId.toString()
+                val sessionKey = connected.sessionId
                 endpointStore.updateEndpoint(endpointId, AgentConnectionStatus.CONNECTED, capabilitiesSummary = "ACP")
                 endpointStore.createSession(endpointId, sessionKey, title = endpointName)
                 selectedSessionId = sessionKey
@@ -204,4 +285,36 @@ class AcpProjectService(
         }
         snapshotPublisher.publish(snapshots)
     }
+
+    private companion object {
+        private fun createDefaultDependencies(project: Project): ServiceDependencies {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            val permissionRequestHandler = PermissionRequestHandler()
+            val registry = com.github.ponyhuang.agentacpplugin.services.session.SessionRegistry()
+            val coordinator = DefaultProjectSessionCoordinator(
+                AcpSessionCoordinator(AcpClientFacade(scope, registry)),
+            )
+            return ServiceDependencies(
+                scope = scope,
+                endpointStore = AgentEndpointStore(),
+                turnStore = ConversationTurnStore(),
+                snapshotStore = SessionViewSnapshotStore(),
+                snapshotPublisher = UiSnapshotPublisher(),
+                mapper = SessionUpdateRenderMapper(),
+                permissionRequestHandler = permissionRequestHandler,
+                sessionCoordinator = coordinator,
+            )
+        }
+    }
 }
+
+private data class ServiceDependencies(
+    val scope: CoroutineScope,
+    val endpointStore: AgentEndpointStore,
+    val turnStore: ConversationTurnStore,
+    val snapshotStore: SessionViewSnapshotStore,
+    val snapshotPublisher: UiSnapshotPublisher,
+    val mapper: SessionUpdateRenderMapper,
+    val permissionRequestHandler: PermissionRequestHandler,
+    val sessionCoordinator: ProjectSessionCoordinator,
+)

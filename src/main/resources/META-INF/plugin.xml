@@ -9,11 +9,6 @@
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow
-                factoryClass="com.github.ponyhuang.agentacpplugin.toolWindow.MyToolWindowFactory"
-                id="AcpChat"
-                stripeTitle="ACP Chat"
-                anchor="right"/>
         <postStartupActivity implementation="com.github.ponyhuang.agentacpplugin.startup.MyProjectActivity" />
     </extensions>
 </idea-plugin>

@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.services.acp
 
+import com.agentclientprotocol.annotations.UnstableApi
 import com.agentclientprotocol.client.Client
 import com.agentclientprotocol.client.ClientInfo
 import com.agentclientprotocol.common.Event
@@ -13,18 +14,16 @@ import com.agentclientprotocol.protocol.Protocol
 import com.github.ponyhuang.agentacpplugin.services.session.RegisteredSession
 import com.github.ponyhuang.agentacpplugin.services.session.SessionRegistry
 import com.github.ponyhuang.agentacpplugin.services.session.TurnCompletionReason
-import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.collect
 import java.nio.file.Path
 
 class AcpClientFacade(
     private val scope: CoroutineScope,
-    private val project: Project,
     private val registry: SessionRegistry,
     private val processLauncher: AcpAgentProcessLauncher = AcpAgentProcessLauncher(),
     private val transportFactory: AcpTransportFactory = AcpTransportFactory(),
 ) {
+    @OptIn(UnstableApi::class)
     suspend fun connect(
         endpointId: String,
         endpointName: String,

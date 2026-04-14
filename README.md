@@ -2,17 +2,18 @@
 
 <!-- Plugin description -->
 `agent-acp-plugin` is an IntelliJ Platform plugin for connecting to multiple
-AI agents through the Agent Client Protocol and chatting with them concurrently
-inside a native JetBrains tool window.
+AI agents through the Agent Client Protocol. The current codebase focuses on
+the ACP bridge, session lifecycle, and update normalization while the plugin
+GUI is being redesigned.
 
 The product direction is explicit:
 
 - Connect to multiple ACP-compatible agents within the same IDE project.
-- Keep agent and conversation state isolated while supporting concurrent chats.
-- Render the entire ACP experience with Swing and JetBrains platform UI
-  components.
-- Preserve a fluid IDE experience without introducing JCEF or other embedded
-  browser rendering for ACP flows.
+- Keep agent and conversation state isolated while supporting concurrent ACP
+  sessions.
+- Preserve clear transport, session, and render-state boundaries so a future
+  native JetBrains UI can be rebuilt on top cleanly.
+- Avoid JCEF or other embedded browser rendering for ACP flows.
 
 ## Development
 
@@ -24,10 +25,8 @@ The product direction is explicit:
 
 ## Project Structure
 
-- `src/main/kotlin/com/github/ponyhuang/agentacpplugin/toolWindow/`: native UI
-  entry points and tool window rendering
 - `src/main/kotlin/com/github/ponyhuang/agentacpplugin/services/`:
-  project-scoped services and ACP/session logic
+  project-scoped ACP bridge, session, and render-state logic
 - `src/main/kotlin/com/github/ponyhuang/agentacpplugin/startup/`: project
   lifecycle hooks
 - `src/main/resources/META-INF/plugin.xml`: plugin metadata
@@ -37,15 +36,13 @@ The product direction is explicit:
 
 - ACP protocol behavior is the source of truth for connection and session flows.
 - Multi-agent concurrency is a first-class requirement, not a later extension.
-- Native Swing and JetBrains UI components are required for ACP surfaces.
+- Any future ACP surface must remain native Swing/JetBrains UI.
 - `check` is required before merge, and `verifyPlugin` is required when release
   compatibility matters.
 
 ## Current MVP
 
-- The tool window launches a local ACP agent command over STDIO.
-- Session updates are normalized into timeline snapshots before any Swing
-  component renders them.
-- The active session view stays in a vertical splitter with `Chat Conversation`
-  above `User Input`, while session/meta side panels remain native Swing.
+- A project service launches local ACP agent commands over STDIO.
+- ACP session updates are normalized into testable session and timeline state.
+- The previous GUI has been removed and will be rebuilt separately.
 <!-- Plugin description end -->

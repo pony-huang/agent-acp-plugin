@@ -5,8 +5,8 @@ import org.junit.Test
 
 class MyPluginTest {
     @Test
-    fun testBundleContainsToolWindowTitleKey() {
-        val text = MyBundle.message("toolWindow.title")
-        assertTrue(text.contains("ACP") || text.contains("agent"))
+    fun testBundleContainsProjectServiceKey() {
+        val text = MyBundle.message("projectService", "test-project")
+        assertTrue(text.contains("test-project"))
     }
 }

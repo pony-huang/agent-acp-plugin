@@ -1,6 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.services.acp
 
 import java.io.Closeable
+import java.io.File
 import java.nio.file.Path
 
 data class LaunchedAgentProcess(
@@ -17,13 +18,15 @@ class AcpAgentProcessLauncher {
     fun launch(commandLine: String, workingDirectory: Path): LaunchedAgentProcess {
         val parts = tokenize(commandLine)
         require(parts.isNotEmpty()) { "Agent command cannot be empty" }
-        val process = ProcessBuilder(parts)
+        val resolvedParts = parts.toMutableList()
+        resolvedParts[0] = resolveExecutable(parts.first())
+        val process = ProcessBuilder(resolvedParts)
             .directory(workingDirectory.toFile())
             .redirectInput(ProcessBuilder.Redirect.PIPE)
             .redirectOutput(ProcessBuilder.Redirect.PIPE)
             .redirectError(ProcessBuilder.Redirect.PIPE)
             .start()
-        return LaunchedAgentProcess(commandLine = commandLine, commandParts = parts, process = process)
+        return LaunchedAgentProcess(commandLine = commandLine, commandParts = resolvedParts, process = process)
     }
 
     internal fun tokenize(commandLine: String): List<String> {
@@ -56,4 +59,27 @@ class AcpAgentProcessLauncher {
         }
         return tokens
     }
+
+    internal fun resolveExecutable(command: String): String {
+        if (!isWindows() || command.contains('\\') || command.contains('/') || command.substringAfterLast('.', "").isNotEmpty()) {
+            return command
+        }
+        val candidates = runCatching {
+            ProcessBuilder("where.exe", command)
+                .redirectErrorStream(true)
+                .start()
+                .inputStream
+                .bufferedReader()
+                .use { reader -> reader.readLines() }
+        }.getOrDefault(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+        val preferred = listOf(".cmd", ".bat", ".exe", ".com")
+        return preferred.firstNotNullOfOrNull { suffix ->
+            candidates.firstOrNull { it.endsWith(suffix, ignoreCase = true) }
+        } ?: candidates.firstOrNull() ?: command
+    }
+
+    private fun isWindows(): Boolean = File.separatorChar == '\\'
 }
