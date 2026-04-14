@@ -26,7 +26,7 @@ import javax.swing.JButton
 /**
  * @author: pony
  */
-class UserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable {
+class AcpUserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable {
 
     private val userInputTextArea = JBTextArea().apply {
         isOpaque = true

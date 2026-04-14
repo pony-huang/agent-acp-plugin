@@ -1,7 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow
 
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpConversationPanel
-import com.github.ponyhuang.agentacpplugin.toolwindow.ui.UserInputPanel
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -21,7 +21,7 @@ class AcpToolWindowPanel(
             0.8f    // 8:2 ratio
         ).apply {
             setFirstComponent(AcpConversationPanel(project))
-            setSecondComponent(UserInputPanel(project))
+            setSecondComponent(AcpUserInputPanel(project))
         }
         splitter.setHonorComponentsMinimumSize(true)
         setContent(splitter)
