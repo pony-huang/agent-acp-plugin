@@ -7,6 +7,7 @@ import com.agentclientprotocol.model.CreateTerminalResponse
 import com.agentclientprotocol.model.EnvVariable
 import com.agentclientprotocol.model.KillTerminalCommandResponse
 import com.agentclientprotocol.model.PermissionOption
+import com.agentclientprotocol.model.PermissionOptionId
 import com.agentclientprotocol.model.PermissionOptionKind
 import com.agentclientprotocol.model.ReadTextFileResponse
 import com.agentclientprotocol.model.ReleaseTerminalResponse
@@ -17,6 +18,7 @@ import com.agentclientprotocol.model.TerminalExitStatus
 import com.agentclientprotocol.model.TerminalOutputResponse
 import com.agentclientprotocol.model.WaitForTerminalExitResponse
 import com.agentclientprotocol.model.WriteTextFileResponse
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,12 +58,11 @@ class TerminalClientSessionOperations(
         permissions: List<PermissionOption>,
         _meta: JsonElement?,
     ): RequestPermissionResponse {
-        val selectedOption = permissions.firstOrNull {
-            it.kind == PermissionOptionKind.ALLOW_ALWAYS || it.kind == PermissionOptionKind.ALLOW_ONCE
-        } ?: permissions.firstOrNull()
-            ?: error("ACP agent requested permissions with no options")
-
-        return RequestPermissionResponse(RequestPermissionOutcome.Selected(selectedOption.optionId), _meta)
+        val permissionService = project.service<AcpPermissionRequestService>()
+        if (permissionService.hasActiveSubscribers()) {
+            return permissionService.requestPermissions(toolCall, permissions, _meta)
+        }
+        return autoApprovePermissions(permissions, _meta)
     }
 
     override suspend fun notify(
@@ -239,6 +240,21 @@ class TerminalClientSessionOperations(
         val output: String,
         val truncated: Boolean,
     )
+
+    private fun autoApprovePermissions(
+        permissions: List<PermissionOption>,
+        meta: JsonElement?,
+    ): RequestPermissionResponse {
+        val selectedOptionId = permissions.firstOrNull {
+            it.kind == PermissionOptionKind.ALLOW_ALWAYS || it.kind == PermissionOptionKind.ALLOW_ONCE
+        }?.optionId ?: permissions.firstOrNull()?.optionId
+            ?: error("ACP agent requested permissions with no options")
+
+        return RequestPermissionResponse(
+            RequestPermissionOutcome.Selected(PermissionOptionId(selectedOptionId.value)),
+            meta,
+        )
+    }
 
     private fun applyOutputLimit(output: String, outputByteLimit: ULong?): LimitedOutput {
         if (outputByteLimit == null) {

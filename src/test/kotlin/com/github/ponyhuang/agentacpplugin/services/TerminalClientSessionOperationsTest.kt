@@ -6,10 +6,12 @@ import com.agentclientprotocol.model.PermissionOptionKind
 import com.agentclientprotocol.model.RequestPermissionOutcome
 import com.agentclientprotocol.model.SessionUpdate
 import com.agentclientprotocol.model.ToolCallId
+import com.intellij.openapi.components.service
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import java.util.UUID
 
@@ -61,6 +63,48 @@ class TerminalClientSessionOperationsTest : BasePlatformTestCase() {
         val response = operations.fsReadTextFile(relativePath, 2u, 1u, null)
 
         assertEquals("beta", response.content)
+    }
+
+    fun testPermissionRequestUsesPermissionServiceWhenUiSubscriberExists() = runBlocking {
+        val permissionService = project.service<AcpPermissionRequestService>()
+        val requestIds = mutableListOf<String>()
+        val collector = async {
+            permissionService.requests.collect { request ->
+                requestIds += request.requestId
+                permissionService.submitSelection(request.requestId, PermissionOptionId("allow"))
+            }
+        }
+        val operations = TerminalClientSessionOperations(
+            project = project,
+            coroutineScope = testScope,
+            sessionUpdateSink = {},
+        )
+
+        val response = operations.requestPermissions(
+            toolCall = SessionUpdate.ToolCallUpdate(
+                toolCallId = ToolCallId("tool-2"),
+                title = "delete file",
+            ),
+            permissions = listOf(
+                PermissionOption(
+                    optionId = PermissionOptionId("allow"),
+                    name = "Allow once",
+                    kind = PermissionOptionKind.ALLOW_ONCE,
+                ),
+                PermissionOption(
+                    optionId = PermissionOptionId("reject"),
+                    name = "Reject once",
+                    kind = PermissionOptionKind.REJECT_ONCE,
+                ),
+            ),
+            _meta = null,
+        )
+
+        collector.cancel()
+
+        val outcome = response.outcome as RequestPermissionOutcome.Selected
+        assertEquals("allow", outcome.optionId.value)
+        assertEquals(1, requestIds.size)
     }
 
     private companion object {

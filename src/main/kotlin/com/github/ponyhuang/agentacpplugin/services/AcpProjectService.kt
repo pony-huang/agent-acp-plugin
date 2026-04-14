@@ -87,12 +87,6 @@ class AcpProjectService(
     internal fun replaceAgentServiceFactoryForTests(factory: AcpAgentServiceFactory) {
         agentServiceFactory = factory
     }
-
-    @TestOnly
-    internal fun replaceRuntimeConnectorForTests(connector: AcpRuntimeConnector) {
-        runtimeConnector = connector
-    }
-
     private fun ensureUsable() {
         check(!disposed) { "ACP project service is already disposed" }
     }

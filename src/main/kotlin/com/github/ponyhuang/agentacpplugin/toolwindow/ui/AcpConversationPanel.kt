@@ -4,9 +4,18 @@ import com.github.ponyhuang.agentacpplugin.toolwindow.ToolWindowConversationItem
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ui.componentsList.components.ScrollablePanel
 import com.intellij.ui.components.JBScrollPane
-import java.awt.*
+import com.intellij.util.ui.JBUI
+import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Component
+import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.Insets
 import java.util.LinkedHashMap
+import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.ScrollPaneConstants
@@ -149,6 +158,7 @@ private fun ToolWindowConversationItem.createPanel(): JPanel {
             monospace = true,
             maxWidthRatio = 0.85,
         )
+        is ToolWindowConversationItem.PermissionRequest -> permissionRequestPanel(this)
         is ToolWindowConversationItem.SystemStatus -> bubble(
             backgroundColor = Color(240, 244, 255),
             alignment = FlowLayout.LEFT,
@@ -161,6 +171,77 @@ private fun ToolWindowConversationItem.createPanel(): JPanel {
             title = "Error",
             content = text,
         )
+    }
+}
+
+private fun permissionRequestPanel(item: ToolWindowConversationItem.PermissionRequest): JPanel {
+    val checkBoxes = linkedMapOf<String, JCheckBox>()
+    val contentPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        isOpaque = false
+        alignmentX = Component.LEFT_ALIGNMENT
+    }
+
+    contentPanel.add(
+        JLabel(
+            "<html><body style='font-family: sans-serif; font-size: 11px; color: #666;'><b>Permission</b></body></html>"
+        ).apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+    )
+    contentPanel.add(Box.createVerticalStrut(6))
+    contentPanel.add(
+        JLabel(
+            "<html><body style='font-family: sans-serif; font-size: 13px;'>${item.title}</body></html>"
+        ).apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+    )
+    contentPanel.add(Box.createVerticalStrut(8))
+
+    item.options.forEach { option ->
+        val checkBox = JCheckBox(option.label).apply {
+            isOpaque = false
+            isSelected = option.optionId == item.selectedOptionId
+            isEnabled = !item.submitted
+            alignmentX = Component.LEFT_ALIGNMENT
+            addActionListener {
+                if (!isSelected) {
+                    isSelected = true
+                    return@addActionListener
+                }
+                checkBoxes.forEach { (otherId, otherCheckBox) ->
+                    if (otherId != option.optionId) {
+                        otherCheckBox.isSelected = false
+                    }
+                }
+            }
+        }
+        checkBoxes[option.optionId] = checkBox
+        contentPanel.add(checkBox)
+        contentPanel.add(Box.createVerticalStrut(4))
+    }
+
+    val submitButton = JButton(if (item.submitted) "Submitted" else "Submit").apply {
+        isEnabled = !item.submitted && item.onSubmit != null
+        alignmentX = Component.LEFT_ALIGNMENT
+        addActionListener {
+            val selectedOptionId = checkBoxes.entries.firstOrNull { it.value.isSelected }?.key ?: return@addActionListener
+            item.onSubmit?.invoke(selectedOptionId)
+        }
+    }
+    contentPanel.add(Box.createVerticalStrut(4))
+    contentPanel.add(submitButton)
+
+    return MessageBubblePanel(
+        backgroundColor = Color(255, 248, 225),
+        alignment = FlowLayout.LEFT,
+        maxWidthRatio = 0.85,
+        padding = Insets(12, 14, 12, 14),
+    ).apply {
+        add(contentPanel.apply {
+            border = JBUI.Borders.empty()
+        })
     }
 }
 

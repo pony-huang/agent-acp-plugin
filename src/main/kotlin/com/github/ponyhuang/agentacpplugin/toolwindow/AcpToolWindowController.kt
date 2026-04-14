@@ -2,11 +2,14 @@ package com.github.ponyhuang.agentacpplugin.toolwindow
 
 import com.agentclientprotocol.annotations.UnstableApi
 import com.agentclientprotocol.model.ContentBlock
+import com.agentclientprotocol.model.PermissionOptionId
 import com.agentclientprotocol.model.SessionUpdate
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentService
+import com.github.ponyhuang.agentacpplugin.services.AcpPermissionRequestService
 import com.github.ponyhuang.agentacpplugin.services.AcpProjectService
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
@@ -32,6 +35,7 @@ class AcpToolWindowController(
 
     private val logger = Logger.getInstance(AcpToolWindowController::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineName("AcpToolWindowController"))
+    private val permissionService = projectService.project.service<AcpPermissionRequestService>()
     private val subscribedAgents = mutableSetOf<String>()
     private val itemStore = ConcurrentHashMap<String, ToolWindowConversationItem>()
 
@@ -46,6 +50,14 @@ class AcpToolWindowController(
 
     @Volatile
     private var currentThinkingItemId: String? = null
+
+    init {
+        scope.launch {
+            permissionService.requests.collect { request ->
+                handlePermissionRequest(request)
+            }
+        }
+    }
 
     fun selectedAgent(): BuiltInAcpAgentRegistry.AgentDefinition = selectedAgent
 
@@ -253,7 +265,53 @@ class AcpToolWindowController(
         }
     }
 
+    private fun handlePermissionRequest(request: AcpPermissionRequestService.PendingPermissionRequest) {
+        val defaultSelection = request.permissions.firstOrNull()?.optionId?.value
+        emitOrUpdate(
+            ToolWindowConversationItem.PermissionRequest(
+                itemId = request.requestId,
+                title = request.toolCall.title ?: "Permission request",
+                options = request.permissions.map {
+                    ToolWindowConversationItem.PermissionChoice(
+                        optionId = it.optionId.value,
+                        label = it.name,
+                    )
+                },
+                selectedOptionId = defaultSelection,
+                submitted = false,
+                onSubmit = { optionId ->
+                    submitPermissionRequest(request.requestId, optionId)
+                },
+            )
+        )
+    }
+
+    private fun submitPermissionRequest(requestId: String, optionId: String) {
+        if (!permissionService.submitSelection(requestId, PermissionOptionId(optionId))) {
+            return
+        }
+        emitUpdate(requestId) { existing ->
+            val item = existing as? ToolWindowConversationItem.PermissionRequest
+            if (item == null) {
+                existing ?: ToolWindowConversationItem.SystemStatus(
+                    itemId = requestId,
+                    text = "Permission request resolved",
+                )
+            } else {
+                item.copy(
+                    selectedOptionId = optionId,
+                    submitted = true,
+                    onSubmit = null,
+                )
+            }
+        }
+    }
+
     private fun emitOrUpdate(item: ToolWindowConversationItem.ToolCall) {
+        emitUpdate(item.itemId) { item }
+    }
+
+    private fun emitOrUpdate(item: ToolWindowConversationItem.PermissionRequest) {
         emitUpdate(item.itemId) { item }
     }
 

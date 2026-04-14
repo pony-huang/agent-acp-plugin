@@ -3,6 +3,11 @@ package com.github.ponyhuang.agentacpplugin.toolwindow
 sealed interface ToolWindowConversationItem {
     val itemId: String
 
+    data class PermissionChoice(
+        val optionId: String,
+        val label: String,
+    )
+
     data class UserText(
         override val itemId: String,
         val text: String,
@@ -23,6 +28,15 @@ sealed interface ToolWindowConversationItem {
         val title: String,
         val status: String?,
         val details: String?,
+    ) : ToolWindowConversationItem
+
+    data class PermissionRequest(
+        override val itemId: String,
+        val title: String,
+        val options: List<PermissionChoice>,
+        val selectedOptionId: String?,
+        val submitted: Boolean,
+        val onSubmit: ((String) -> Unit)?,
     ) : ToolWindowConversationItem
 
     data class SystemStatus(
