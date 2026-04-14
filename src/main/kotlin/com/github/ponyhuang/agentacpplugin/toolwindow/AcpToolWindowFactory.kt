@@ -5,10 +5,14 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
 
-class MyToolWindowFactory : ToolWindowFactory {
+class AcpToolWindowFactory : ToolWindowFactory {
+
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = MyToolWindowPanel(project)
-        val content = ContentFactory.getInstance().createContent(panel, null, false)
+        val myToolWindow = AcpToolWindowPanel(project, toolWindow.disposable)
+        val content = ContentFactory.getInstance().createContent(myToolWindow, null, false)
         toolWindow.contentManager.addContent(content)
     }
+
+    override fun shouldBeAvailable(project: Project) = true
+
 }
