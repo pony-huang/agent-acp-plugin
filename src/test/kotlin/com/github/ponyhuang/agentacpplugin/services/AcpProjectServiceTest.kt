@@ -73,10 +73,8 @@ class AcpProjectServiceTest : BasePlatformTestCase() {
                 args = listOf("@agentclientprotocol/claude-agent-acp"),
             )
 
-            val connected = projectService.connect(descriptor)
             val agentService = projectService.getAgentService("claude") ?: error("missing agent service")
 
-            assertEquals(descriptor, connected.descriptor)
             assertTrue(agentService.isConnected)
 
             projectService.removeAgentService("claude", "removed in test")

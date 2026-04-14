@@ -3,22 +3,20 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 import com.github.ponyhuang.agentacpplugin.toolwindow.ToolWindowConversationItem
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ui.componentsList.components.ScrollablePanel
-import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBLabel
+import com.intellij.ui.dsl.builder.AlignX
+import com.intellij.ui.dsl.builder.panel
+import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
+import com.intellij.util.ui.components.BorderLayoutPanel
+import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
+import org.intellij.markdown.html.HtmlGenerator
+import org.intellij.markdown.parser.MarkdownParser
 import java.awt.BorderLayout
-import java.awt.Color
 import java.awt.Component
 import java.awt.Dimension
-import java.awt.FlowLayout
-import java.awt.Insets
-import java.util.LinkedHashMap
-import javax.swing.Box
-import javax.swing.BoxLayout
-import javax.swing.JButton
-import javax.swing.JCheckBox
-import javax.swing.JLabel
-import javax.swing.JPanel
-import javax.swing.ScrollPaneConstants
+import javax.swing.*
 import javax.swing.border.EmptyBorder
 
 /**
@@ -28,7 +26,6 @@ import javax.swing.border.EmptyBorder
 class AcpConversationPanel(var project: Project) : ScrollablePanel() {
 
     private val messagePanel: JPanel
-    private val scrollPane: JBScrollPane
     private val componentsById = LinkedHashMap<String, JPanel>()
 
     init {
@@ -37,17 +34,10 @@ class AcpConversationPanel(var project: Project) : ScrollablePanel() {
 
         messagePanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            background = Color(247, 247, 247)
+            background = UIUtil.getPanelBackground()
         }
 
-        scrollPane = JBScrollPane(messagePanel).apply {
-            verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
-            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-            border = null
-            background = Color(247, 247, 247)
-        }
-
-        add(scrollPane, BorderLayout.CENTER)
+        add(messagePanel, BorderLayout.CENTER)
     }
 
     fun append(item: ToolWindowConversationItem) {
@@ -85,69 +75,74 @@ class AcpConversationPanel(var project: Project) : ScrollablePanel() {
     private fun refresh() {
         messagePanel.revalidate()
         messagePanel.repaint()
-        javax.swing.SwingUtilities.invokeLater {
-            scrollPane.verticalScrollBar.value = scrollPane.verticalScrollBar.maximum
-        }
     }
 }
 
 class MessageBubblePanel(
-    private val backgroundColor: Color,
-    private val alignment: Int,
-    private val maxWidthRatio: Double = 0.75,
-    private val padding: Insets = Insets(10, 14, 10, 14)
-) : JPanel(BorderLayout()) {
+    title: String,
+    content: String
+) : BorderLayoutPanel() {
+
+    private val editorPane: JEditorPane
 
     init {
-        background = Color(247, 247, 247)
-        border = EmptyBorder(4, 8, 4, 8)
+        background = UIUtil.getPanelBackground()
         maximumSize = Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE)
-    }
-
-    override fun doLayout() {
-        super.doLayout()
-        // Apply max width constraint based on parent width
-        val parentWidth = parent?.width ?: 600
-        val maxWidth = (parentWidth * maxWidthRatio).toInt()
-        for (component in components) {
-            if (component.maximumSize.width > maxWidth) {
-                component.maximumSize = Dimension(maxWidth, component.maximumSize.height)
-            }
+        isOpaque = false
+        alignmentX = 0.0f
+        editorPane = JEditorPane().apply {
+            isEditable = false
+            isOpaque = true
+            background = UIUtil.getPanelBackground()
+            foreground = UIUtil.getLabelForeground()
+            val htmlEditorKit = HTMLEditorKitBuilder.simple()
+            val styleSheet = htmlEditorKit.styleSheet
+            styleSheet.addRule(
+                """
+                h1 { font-size: 14pt; margin-bottom: 2px; }
+                h2 { font-size: 13pt; margin-bottom: 2px; }
+                h3 { font-size: 12pt; margin-bottom: 2px; }
+                h4 { font-size: 11pt; margin-bottom: 2px; }
+            """.trimIndent()
+            )
+            editorKit = htmlEditorKit
         }
-    }
-
-    override fun add(comp: Component): Component? {
-        val wrapper = JPanel(FlowLayout(alignment, 0, 0))
-        wrapper.background = backgroundColor
-        wrapper.border = EmptyBorder(padding)
-        wrapper.add(comp)
-        return super.add(wrapper)
+        editorPane.text = renderHtml(content)
+        addToCenter(panel {
+            row {
+                cell(JBLabel(title).apply {
+                    isOpaque = false
+                    background = UIUtil.getEditorPaneBackground()
+                }).align(AlignX.LEFT)
+            }
+            row {
+                cell(editorPane).align(AlignX.LEFT)
+            }
+        }.apply {
+            background = UIUtil.getPanelBackground()
+            isOpaque = false
+        })
     }
 }
 
 private fun ToolWindowConversationItem.createPanel(): JPanel {
     return when (this) {
         is ToolWindowConversationItem.UserText -> bubble(
-            backgroundColor = Color(219, 235, 253),
-            alignment = FlowLayout.RIGHT,
             title = "You",
             content = text,
         )
+
         is ToolWindowConversationItem.AssistantText -> bubble(
-            backgroundColor = Color(255, 255, 255),
-            alignment = FlowLayout.LEFT,
             title = "Assistant",
             content = text,
         )
+
         is ToolWindowConversationItem.Thinking -> bubble(
-            backgroundColor = Color(255, 253, 231),
-            alignment = FlowLayout.LEFT,
             title = "Thinking",
             content = text,
         )
+
         is ToolWindowConversationItem.ToolCall -> bubble(
-            backgroundColor = Color(243, 245, 249),
-            alignment = FlowLayout.LEFT,
             title = buildString {
                 append("Tool")
                 append(": ")
@@ -155,19 +150,16 @@ private fun ToolWindowConversationItem.createPanel(): JPanel {
                 status?.takeIf { it.isNotBlank() }?.let { append(" [$it]") }
             },
             content = details ?: "",
-            monospace = true,
-            maxWidthRatio = 0.85,
         )
+
+        is ToolWindowConversationItem.Plan -> planPanel(this)
         is ToolWindowConversationItem.PermissionRequest -> permissionRequestPanel(this)
         is ToolWindowConversationItem.SystemStatus -> bubble(
-            backgroundColor = Color(240, 244, 255),
-            alignment = FlowLayout.LEFT,
             title = "Status",
             content = text,
         )
+
         is ToolWindowConversationItem.Error -> bubble(
-            backgroundColor = Color(255, 235, 238),
-            alignment = FlowLayout.LEFT,
             title = "Error",
             content = text,
         )
@@ -226,7 +218,8 @@ private fun permissionRequestPanel(item: ToolWindowConversationItem.PermissionRe
         isEnabled = !item.submitted && item.onSubmit != null
         alignmentX = Component.LEFT_ALIGNMENT
         addActionListener {
-            val selectedOptionId = checkBoxes.entries.firstOrNull { it.value.isSelected }?.key ?: return@addActionListener
+            val selectedOptionId =
+                checkBoxes.entries.firstOrNull { it.value.isSelected }?.key ?: return@addActionListener
             item.onSubmit?.invoke(selectedOptionId)
         }
     }
@@ -234,10 +227,7 @@ private fun permissionRequestPanel(item: ToolWindowConversationItem.PermissionRe
     contentPanel.add(submitButton)
 
     return MessageBubblePanel(
-        backgroundColor = Color(255, 248, 225),
-        alignment = FlowLayout.LEFT,
-        maxWidthRatio = 0.85,
-        padding = Insets(12, 14, 12, 14),
+        "", ""
     ).apply {
         add(contentPanel.apply {
             border = JBUI.Borders.empty()
@@ -245,29 +235,57 @@ private fun permissionRequestPanel(item: ToolWindowConversationItem.PermissionRe
     }
 }
 
+private fun planPanel(item: ToolWindowConversationItem.Plan): JPanel {
+    val contentPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        isOpaque = false
+        alignmentX = Component.LEFT_ALIGNMENT
+    }
+
+    contentPanel.add(
+        JLabel(
+            "<html><body style='font-family: sans-serif; font-size: 11px; color: #666;'><b>${item.title}</b></body></html>"
+        ).apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+    )
+    contentPanel.add(Box.createVerticalStrut(8))
+
+    item.entries.forEachIndexed { index, entry ->
+        val currentStep = item.currentStep ?: item.entries.size
+        val prefix = if (index == currentStep) "▶" else if (index < currentStep) "✓" else "○"
+        val entryLabel = JLabel(
+            "<html><body style='font-family: sans-serif; font-size: 12px; color: ${if (index == currentStep) "#0066cc" else "#333"};'>$prefix $entry</body></html>"
+        ).apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        contentPanel.add(entryLabel)
+        contentPanel.add(Box.createVerticalStrut(4))
+    }
+
+    return MessageBubblePanel(
+        "", ""
+    ).apply {
+        add(contentPanel.apply {
+            border = JBUI.Borders.empty()
+        })
+    }
+}
+
+
+val flavour = GFMFlavourDescriptor()
+
+private fun renderHtml(text: String): String {
+    val parsedTree = MarkdownParser(flavour).buildMarkdownTreeFromString(text)
+    return HtmlGenerator(text, parsedTree, GFMFlavourDescriptor()).generateHtml()
+}
+
 private fun bubble(
-    backgroundColor: Color,
-    alignment: Int,
     title: String,
     content: String,
-    monospace: Boolean = false,
-    maxWidthRatio: Double = 0.75,
 ): JPanel {
-    val fontFamily = if (monospace) "monospace" else "sans-serif"
     return MessageBubblePanel(
-        backgroundColor = backgroundColor,
-        alignment = alignment,
-        maxWidthRatio = maxWidthRatio,
-    ).apply {
-        add(
-            JLabel(
-                "<html><body style='font-family: sans-serif; font-size: 11px; color: #666;'><b>$title</b></body></html>"
-            )
-        )
-        add(
-            JLabel(
-                "<html><body style='font-family: $fontFamily; font-size: 13px; max-width: 420px; line-height: 1.4;'>$content</body></html>"
-            )
-        )
-    }
+        title = title,
+        content = content,
+    )
 }

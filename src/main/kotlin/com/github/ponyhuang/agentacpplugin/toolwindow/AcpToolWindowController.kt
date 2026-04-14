@@ -51,6 +51,9 @@ class AcpToolWindowController(
     @Volatile
     private var currentThinkingItemId: String? = null
 
+    @Volatile
+    private var currentPlanItemId: String? = null
+
     init {
         scope.launch {
             permissionService.requests.collect { request ->
@@ -92,6 +95,7 @@ class AcpToolWindowController(
         emitItem(ToolWindowConversationItem.UserText(nextItemId("user"), prompt))
         currentAssistantItemId = null
         currentThinkingItemId = null
+        currentPlanItemId = null
 
         try {
             val descriptor = selectedAgent.toDescriptor()
@@ -167,12 +171,8 @@ class AcpToolWindowController(
                 emitOrUpdate(item)
             }
             is SessionUpdate.PlanUpdate -> {
-                emitItem(
-                    ToolWindowConversationItem.SystemStatus(
-                        itemId = nextItemId("plan"),
-                        text = "Plan updated (${update.entries.size} steps)",
-                    )
-                )
+                val entries = update.entries.map { it.toString() }
+                emitPlanUpdate(entries)
             }
             is SessionUpdate.AvailableCommandsUpdate -> {
                 emitItem(
@@ -313,6 +313,18 @@ class AcpToolWindowController(
 
     private fun emitOrUpdate(item: ToolWindowConversationItem.PermissionRequest) {
         emitUpdate(item.itemId) { item }
+    }
+
+    private fun emitOrUpdate(item: ToolWindowConversationItem.Plan) {
+        emitUpdate(item.itemId) { item }
+    }
+
+    private fun emitPlanUpdate(entries: List<String>) {
+        val itemId = currentPlanItemId ?: nextItemId("plan").also { currentPlanItemId = it }
+        val title = "Plan (${entries.size} steps)"
+        emitUpdate(itemId) {
+            ToolWindowConversationItem.Plan(itemId, title, entries, null)
+        }
     }
 
     private fun emitItem(item: ToolWindowConversationItem) {

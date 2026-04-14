@@ -30,6 +30,13 @@ sealed interface ToolWindowConversationItem {
         val details: String?,
     ) : ToolWindowConversationItem
 
+    data class Plan(
+        override val itemId: String,
+        val title: String,
+        val entries: List<String>,
+        val currentStep: Int? = null,
+    ) : ToolWindowConversationItem
+
     data class PermissionRequest(
         override val itemId: String,
         val title: String,

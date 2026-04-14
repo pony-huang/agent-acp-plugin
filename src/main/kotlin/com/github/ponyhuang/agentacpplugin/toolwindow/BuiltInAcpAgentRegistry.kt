@@ -35,48 +35,11 @@ object BuiltInAcpAgentRegistry {
 
     val agents: List<AgentDefinition> = listOf(
         AgentDefinition(
-            id = "github-copilot",
-            displayName = "GitHub Copilot",
-            description = "GitHub Copilot ACP via language server",
-            command = "npx",
-            args = listOf("@github/copilot-language-server@latest", "--acp"),
-        ),
-        AgentDefinition(
             id = "claude-code",
             displayName = "Claude Code",
             description = "Claude Code ACP",
-            command = "npx",
+            command = "npx.cmd",
             args = listOf("@zed-industries/claude-code-acp@latest"),
-            requiredEnvKeys = listOf("ANTHROPIC_API_KEY"),
-        ),
-        AgentDefinition(
-            id = "gemini-cli",
-            displayName = "Gemini CLI",
-            description = "Google Gemini CLI ACP",
-            command = "npx",
-            args = listOf("@google/gemini-cli@latest", "--experimental-acp"),
-        ),
-        AgentDefinition(
-            id = "qwen-code",
-            displayName = "Qwen Code",
-            description = "Qwen Code ACP",
-            command = "npx",
-            args = listOf("@qwen-code/qwen-code@latest", "--acp", "--experimental-skills"),
-        ),
-        AgentDefinition(
-            id = "auggie-cli",
-            displayName = "Auggie CLI",
-            description = "Auggie CLI ACP",
-            command = "npx",
-            args = listOf("@augmentcode/auggie@latest", "--acp"),
-            fixedEnv = mapOf("AUGMENT_DISABLE_AUTO_UPDATE" to "1"),
-        ),
-        AgentDefinition(
-            id = "qoder-cli",
-            displayName = "Qoder CLI",
-            description = "Qoder CLI ACP",
-            command = "npx",
-            args = listOf("@qoder-ai/qodercli@latest", "--acp"),
         ),
         AgentDefinition(
             id = "codex-cli",
@@ -91,15 +54,7 @@ object BuiltInAcpAgentRegistry {
             description = "OpenCode ACP",
             command = "npx",
             args = listOf("opencode-ai@latest", "acp"),
-        ),
-        AgentDefinition(
-            id = "open-claw",
-            displayName = "OpenClaw",
-            description = "OpenClaw ACP",
-            command = "npx",
-            args = listOf("openclaw", "acp"),
-        ),
+        )
     )
-
     fun defaultAgent(): AgentDefinition = agents.first()
 }

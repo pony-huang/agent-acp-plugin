@@ -4,14 +4,14 @@ import com.github.ponyhuang.agentacpplugin.services.AcpProjectService
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpConversationPanel
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.components.service
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.ui.Splitter
-import com.intellij.openapi.util.Disposer
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.openapi.util.Disposer
 
 class AcpToolWindowPanel(
     var project: Project,
