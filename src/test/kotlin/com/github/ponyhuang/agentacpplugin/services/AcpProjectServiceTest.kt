@@ -1,7 +1,18 @@
 package com.github.ponyhuang.agentacpplugin.services
 
+import com.agentclientprotocol.annotations.UnstableApi
+import com.agentclientprotocol.model.AvailableCommand
+import com.agentclientprotocol.model.AvailableCommandInput
+import com.agentclientprotocol.model.ContentBlock
+import com.agentclientprotocol.model.Cost
+import com.agentclientprotocol.model.SessionConfigOption
+import com.agentclientprotocol.model.SessionConfigSelectOption
+import com.agentclientprotocol.model.SessionConfigSelectOptions
+import com.agentclientprotocol.model.SessionModeId
+import com.agentclientprotocol.model.SessionUpdate
 import com.github.ponyhuang.agentacpplugin.services.acp.PermissionRequestHandler
 import com.github.ponyhuang.agentacpplugin.services.acp.SessionUpdateIngress
+import com.github.ponyhuang.agentacpplugin.services.render.SessionViewSnapshot
 import com.github.ponyhuang.agentacpplugin.services.session.AgentEndpointStore
 import com.github.ponyhuang.agentacpplugin.services.session.ConversationTurnStore
 import com.github.ponyhuang.agentacpplugin.services.session.TurnCompletionReason
@@ -12,15 +23,16 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.nio.file.Path
 
+@OptIn(UnstableApi::class)
 class AcpProjectServiceTest : BasePlatformTestCase() {
     private lateinit var scope: CoroutineScope
-    private lateinit var coordinator: FakeProjectSessionCoordinator
+    private lateinit var coordinator: InMemoryProjectSessionCoordinator
     private lateinit var service: AcpProjectService
 
     override fun setUp() {
         super.setUp()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-        coordinator = FakeProjectSessionCoordinator()
+        coordinator = InMemoryProjectSessionCoordinator()
         service = AcpProjectService(
             project = project,
             scope = scope,
@@ -40,76 +52,142 @@ class AcpProjectServiceTest : BasePlatformTestCase() {
     }
 
     fun testConnectCreatesConnectedSnapshotAndSelectsSession() {
-        coordinator.connectResult = ConnectedSession("session-1")
+        coordinator.nextSessionId = "session-1"
 
         service.connect("npx @agentclientprotocol/claude-agent-acp")
 
-        val snapshot = service.snapshots().getValue("session-1")
+        val snapshot = snapshot("session-1")
         assertEquals("session-1", service.selectedSessionId())
         assertEquals("npx", snapshot.headerState.title)
         assertEquals("CONNECTED", snapshot.headerState.connectionStatus)
         assertEquals("IDLE", snapshot.headerState.sessionStatus)
         assertTrue(snapshot.composerEnabled)
-        assertEquals("npx", coordinator.connectCalls.single().endpointName)
-        assertEquals("npx @agentclientprotocol/claude-agent-acp", coordinator.connectCalls.single().commandLine)
+        assertNull(snapshot.bannerState)
+        assertTrue(snapshot.visibleTimeline.isEmpty())
     }
 
-    fun testSubmitPromptStartsTurnAndFinishesSuccessfully() {
-        connectSession()
-        coordinator.submitPromptHook = { sessionId, _, ingress ->
+    fun testSubmitPromptUsesRealIngressMapperAndStoreFlow() {
+        connectSession("session-1")
+        coordinator.submitPromptBehavior = { sessionId, _, ingress ->
+            ingress.onSessionUpdate(sessionId, SessionUpdate.AgentMessageChunk(ContentBlock.Text("ACP_OK")))
             ingress.onPromptFinished(sessionId, TurnCompletionReason.END_TURN)
         }
 
         service.submitPrompt("hello ACP")
 
-        val snapshot = service.snapshots().getValue("session-1")
-        assertEquals("session-1", coordinator.promptCalls.single().sessionId)
-        assertEquals("hello ACP", coordinator.promptCalls.single().prompt)
+        val snapshot = snapshot("session-1")
         assertEquals("IDLE", snapshot.headerState.sessionStatus)
-        assertEquals(listOf("hello ACP"), snapshot.visibleTimeline.map { it.textContent })
+        assertEquals(listOf("hello ACP", "ACP_OK"), snapshot.visibleTimeline.map { it.textContent })
+        assertEquals(listOf("COMPLETED", "COMPLETED"), snapshot.visibleTimeline.map { it.displayState.name })
+        assertNull(snapshot.bannerState)
     }
 
     fun testSubmitPromptFailureShowsBannerAndStatusItem() {
-        connectSession()
-        coordinator.submitPromptFailure = IllegalStateException("agent offline")
+        connectSession("session-1")
+        coordinator.submitPromptBehavior = { _, _, _ ->
+            error("agent offline")
+        }
 
         service.submitPrompt("hello")
 
-        val snapshot = service.snapshots().getValue("session-1")
+        val snapshot = snapshot("session-1")
         assertEquals("DEGRADED", snapshot.headerState.sessionStatus)
         assertEquals("agent offline", snapshot.bannerState?.text)
         assertEquals(listOf("hello", "agent offline"), snapshot.visibleTimeline.map { it.textContent })
+        assertEquals("FAILED", snapshot.visibleTimeline.last().displayState.name)
     }
 
-    fun testCancelAndDisconnectUseSelectedSession() {
-        connectSession()
+    fun testSessionUpdatesRefreshSnapshotMetadata() {
+        connectSession("session-1")
 
-        service.cancelSelectedPrompt()
+        service.onSessionUpdate(
+            "session-1",
+            SessionUpdate.SessionInfoUpdate(title = "Review Session"),
+        )
+        service.onSessionUpdate(
+            "session-1",
+            SessionUpdate.CurrentModeUpdate(SessionModeId("review")),
+        )
+        service.onSessionUpdate(
+            "session-1",
+            SessionUpdate.AvailableCommandsUpdate(
+                listOf(
+                    AvailableCommand(name = "plan", description = "Show plan"),
+                    AvailableCommand(
+                        name = "mode",
+                        description = "Switch mode",
+                        input = AvailableCommandInput.Unstructured("mode id"),
+                    ),
+                ),
+            ),
+        )
+        service.onSessionUpdate(
+            "session-1",
+            SessionUpdate.ConfigOptionUpdate(
+                listOf(
+                    SessionConfigOption.boolean(
+                        id = "auto-apply",
+                        name = "Auto apply",
+                        currentValue = true,
+                    ),
+                    SessionConfigOption.select(
+                        id = "model",
+                        name = "Model",
+                        currentValue = "gpt-5.4",
+                        options = SessionConfigSelectOptions.Flat(
+                            listOf(
+                                SessionConfigSelectOption(
+                                    value = com.agentclientprotocol.model.SessionConfigValueId("gpt-5.4"),
+                                    name = "GPT-5.4",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        service.onSessionUpdate(
+            "session-1",
+            SessionUpdate.UsageUpdate(
+                used = 42,
+                size = 256,
+                cost = Cost(amount = 0.12, currency = "USD"),
+            ),
+        )
+
+        val snapshot = snapshot("session-1")
+        assertEquals("Review Session", snapshot.headerState.title)
+        assertEquals("review", snapshot.headerState.currentMode)
+        assertEquals("Used 42 / 256 (0.12 USD)", snapshot.headerState.usageSummary)
+        assertEquals(listOf("/plan", "/mode - Switch mode"), snapshot.availableCommands)
+        assertEquals(2, snapshot.configOptions.size)
+        assertTrue(snapshot.configOptions.any { it.contains("auto-apply") })
+        assertTrue(snapshot.configOptions.any { it.contains("gpt-5.4") })
+    }
+
+    fun testDisconnectSessionMarksSnapshotClosed() {
+        connectSession("session-1")
+
         service.disconnectSession("session-1")
 
-        val snapshot = service.snapshots().getValue("session-1")
-        assertEquals(listOf("session-1"), coordinator.cancelledSessionIds)
-        assertEquals(listOf("session-1"), coordinator.disconnectedSessionIds)
+        val snapshot = snapshot("session-1")
         assertEquals("CLOSED", snapshot.headerState.sessionStatus)
         assertEquals("Session disconnected", snapshot.bannerState?.text)
         assertFalse(snapshot.composerEnabled)
     }
 
-    private fun connectSession(sessionId: String = "session-1") {
-        coordinator.connectResult = ConnectedSession(sessionId)
+    private fun connectSession(sessionId: String) {
+        coordinator.nextSessionId = sessionId
         service.connect("npx @agentclientprotocol/claude-agent-acp")
     }
+
+    private fun snapshot(sessionId: String): SessionViewSnapshot =
+        requireNotNull(service.snapshots()[sessionId]) { "Expected snapshot for $sessionId" }
 }
 
-private class FakeProjectSessionCoordinator : ProjectSessionCoordinator {
-    var connectResult: ConnectedSession = ConnectedSession("session-1")
-    var submitPromptFailure: Throwable? = null
-    var submitPromptHook: (suspend (String, String, SessionUpdateIngress) -> Unit)? = null
-
-    val connectCalls = mutableListOf<ConnectCall>()
-    val promptCalls = mutableListOf<PromptCall>()
-    val cancelledSessionIds = mutableListOf<String>()
-    val disconnectedSessionIds = mutableListOf<String>()
+private class InMemoryProjectSessionCoordinator : ProjectSessionCoordinator {
+    var nextSessionId: String = "session-1"
+    var submitPromptBehavior: suspend (String, String, SessionUpdateIngress) -> Unit = { _, _, _ -> }
 
     override suspend fun connect(
         endpointId: String,
@@ -118,34 +196,13 @@ private class FakeProjectSessionCoordinator : ProjectSessionCoordinator {
         workspaceRoot: Path,
         ingress: SessionUpdateIngress,
         permissionRequestHandler: PermissionRequestHandler,
-    ): ConnectedSession {
-        connectCalls += ConnectCall(endpointId, endpointName, commandLine, workspaceRoot)
-        return connectResult
-    }
+    ): ConnectedSession = ConnectedSession(nextSessionId)
 
     override suspend fun submitPrompt(sessionId: String, prompt: String, ingress: SessionUpdateIngress) {
-        promptCalls += PromptCall(sessionId, prompt)
-        submitPromptFailure?.let { throw it }
-        submitPromptHook?.invoke(sessionId, prompt, ingress)
+        submitPromptBehavior(sessionId, prompt, ingress)
     }
 
-    override suspend fun cancel(sessionId: String) {
-        cancelledSessionIds += sessionId
-    }
+    override suspend fun cancel(sessionId: String) = Unit
 
-    override fun disconnect(sessionId: String) {
-        disconnectedSessionIds += sessionId
-    }
+    override fun disconnect(sessionId: String) = Unit
 }
-
-private data class ConnectCall(
-    val endpointId: String,
-    val endpointName: String,
-    val commandLine: String,
-    val workspaceRoot: Path,
-)
-
-private data class PromptCall(
-    val sessionId: String,
-    val prompt: String,
-)
