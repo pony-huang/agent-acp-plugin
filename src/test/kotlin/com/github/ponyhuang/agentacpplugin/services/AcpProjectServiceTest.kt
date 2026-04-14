@@ -113,9 +113,9 @@ class AcpProjectServiceTest : BasePlatformTestCase() {
     }
 
     fun testPerAgentServiceSendPromptUsesConnectedSession() = runBlocking {
+        myFixture.addFileToProject("README.md", "seed")
         val projectService = AcpProjectService(project)
         try {
-
             val descriptor = AcpAgentDescriptor(
                 id = "claude",
                 displayName = "Claude Code",
@@ -124,9 +124,9 @@ class AcpProjectServiceTest : BasePlatformTestCase() {
             )
             val agentService = projectService.getOrCreateAgentService(descriptor)
             agentService.connect()
-
-            val events = agentService.sendPrompt("hello ACP").toList()
-
+            val events =
+                agentService.sendPrompt("Create a new file called 'hello.txt' with the content 'Hello, World!'")
+                    .toList()
             for (event in events) {
                 print(event)
             }
