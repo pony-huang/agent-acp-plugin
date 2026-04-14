@@ -1,6 +1,7 @@
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.gradle.api.tasks.testing.logging.TestLogEvent
 
 plugins {
     id("java") // Java support
@@ -165,11 +166,21 @@ val requestedTestPatterns = gradle.startParameter.taskRequests
 
 tasks.withType<Test>().configureEach {
     val liveAcpTestClass = "com.github.ponyhuang.agentacpplugin.services.acp.AcpClientFacadeLiveIntegrationTest"
+    val projectServiceTestClass = "com.github.ponyhuang.agentacpplugin.services.AcpProjectServiceTest"
     val requestedLiveAcpTest = requestedTestPatterns.any { pattern ->
         pattern == liveAcpTestClass || pattern.startsWith("$liveAcpTestClass.")
     }
+    val requestedProjectServiceTest = requestedTestPatterns.any { pattern ->
+        pattern == projectServiceTestClass || pattern.startsWith("$projectServiceTestClass.")
+    }
     if (requestedLiveAcpTest) {
         systemProperty("agentacp.realAgentTests", "true")
+    }
+    if (requestedProjectServiceTest) {
+        testLogging {
+            showStandardStreams = true
+            events(TestLogEvent.PASSED, TestLogEvent.FAILED, TestLogEvent.SKIPPED, TestLogEvent.STANDARD_OUT, TestLogEvent.STANDARD_ERROR)
+        }
     }
 }
 

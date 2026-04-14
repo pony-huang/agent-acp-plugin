@@ -27,10 +27,6 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.UUID
 
-internal data class ConnectedSession(
-    val sessionId: String,
-)
-
 internal interface ProjectSessionCoordinator {
     suspend fun connect(
         endpointId: String,
@@ -39,48 +35,13 @@ internal interface ProjectSessionCoordinator {
         workspaceRoot: Path,
         ingress: SessionUpdateIngress,
         permissionRequestHandler: PermissionRequestHandler,
-    ): ConnectedSession
+    ): String
 
     suspend fun submitPrompt(sessionId: String, prompt: String, ingress: SessionUpdateIngress)
 
     suspend fun cancel(sessionId: String)
 
     fun disconnect(sessionId: String)
-}
-
-private class DefaultProjectSessionCoordinator(
-    private val delegate: AcpSessionCoordinator,
-) : ProjectSessionCoordinator {
-    override suspend fun connect(
-        endpointId: String,
-        endpointName: String,
-        commandLine: String,
-        workspaceRoot: Path,
-        ingress: SessionUpdateIngress,
-        permissionRequestHandler: PermissionRequestHandler,
-    ): ConnectedSession {
-        val registered = delegate.connect(
-            endpointId = endpointId,
-            endpointName = endpointName,
-            commandLine = commandLine,
-            workspaceRoot = workspaceRoot,
-            ingress = ingress,
-            permissionRequestHandler = permissionRequestHandler,
-        )
-        return ConnectedSession(registered.sessionId.toString())
-    }
-
-    override suspend fun submitPrompt(sessionId: String, prompt: String, ingress: SessionUpdateIngress) {
-        delegate.submitPrompt(sessionId, prompt, ingress)
-    }
-
-    override suspend fun cancel(sessionId: String) {
-        delegate.cancel(sessionId)
-    }
-
-    override fun disconnect(sessionId: String) {
-        delegate.disconnect(sessionId)
-    }
 }
 
 @Service(Service.Level.PROJECT)
@@ -149,7 +110,7 @@ class AcpProjectService private constructor(
         scope.launch {
             runCatching {
                 val workspaceRoot = project.basePath?.let(Paths::get) ?: Path.of(".")
-                val connected = sessionCoordinator.connect(
+                val sessionId = sessionCoordinator.connect(
                     endpointId = endpointId,
                     endpointName = endpointName,
                     commandLine = trimmed,
@@ -157,10 +118,9 @@ class AcpProjectService private constructor(
                     ingress = this@AcpProjectService,
                     permissionRequestHandler = permissionRequestHandler,
                 )
-                val sessionKey = connected.sessionId
                 endpointStore.updateEndpoint(endpointId, AgentConnectionStatus.CONNECTED, capabilitiesSummary = "ACP")
-                endpointStore.createSession(endpointId, sessionKey, title = endpointName)
-                selectedSessionId = sessionKey
+                endpointStore.createSession(endpointId, sessionId, title = endpointName)
+                selectedSessionId = sessionId
                 publishSnapshots()
             }.onFailure { error ->
                 endpointStore.updateEndpoint(endpointId, AgentConnectionStatus.FAILED, errorSummary = error.message ?: "Connection failed")
@@ -291,9 +251,6 @@ class AcpProjectService private constructor(
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             val permissionRequestHandler = PermissionRequestHandler()
             val registry = com.github.ponyhuang.agentacpplugin.services.session.SessionRegistry()
-            val coordinator = DefaultProjectSessionCoordinator(
-                AcpSessionCoordinator(AcpClientFacade(scope, registry)),
-            )
             return ServiceDependencies(
                 scope = scope,
                 endpointStore = AgentEndpointStore(),
@@ -302,8 +259,46 @@ class AcpProjectService private constructor(
                 snapshotPublisher = UiSnapshotPublisher(),
                 mapper = SessionUpdateRenderMapper(),
                 permissionRequestHandler = permissionRequestHandler,
-                sessionCoordinator = coordinator,
+                sessionCoordinator = createProjectSessionCoordinator(scope, registry),
             )
+        }
+
+        private fun createProjectSessionCoordinator(
+            scope: CoroutineScope,
+            registry: com.github.ponyhuang.agentacpplugin.services.session.SessionRegistry,
+        ): ProjectSessionCoordinator {
+            val delegate = AcpSessionCoordinator(AcpClientFacade(scope, registry))
+            return object : ProjectSessionCoordinator {
+                override suspend fun connect(
+                    endpointId: String,
+                    endpointName: String,
+                    commandLine: String,
+                    workspaceRoot: Path,
+                    ingress: SessionUpdateIngress,
+                    permissionRequestHandler: PermissionRequestHandler,
+                ): String {
+                    return delegate.connect(
+                        endpointId = endpointId,
+                        endpointName = endpointName,
+                        commandLine = commandLine,
+                        workspaceRoot = workspaceRoot,
+                        ingress = ingress,
+                        permissionRequestHandler = permissionRequestHandler,
+                    ).sessionId.toString()
+                }
+
+                override suspend fun submitPrompt(sessionId: String, prompt: String, ingress: SessionUpdateIngress) {
+                    delegate.submitPrompt(sessionId, prompt, ingress)
+                }
+
+                override suspend fun cancel(sessionId: String) {
+                    delegate.cancel(sessionId)
+                }
+
+                override fun disconnect(sessionId: String) {
+                    delegate.disconnect(sessionId)
+                }
+            }
         }
     }
 }
