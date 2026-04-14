@@ -14,6 +14,7 @@ import com.agentclientprotocol.protocol.Protocol
 import com.github.ponyhuang.agentacpplugin.services.session.RegisteredSession
 import com.github.ponyhuang.agentacpplugin.services.session.SessionRegistry
 import com.github.ponyhuang.agentacpplugin.services.session.TurnCompletionReason
+import com.intellij.openapi.diagnostic.Logger
 import kotlinx.coroutines.CoroutineScope
 import java.nio.file.Path
 
@@ -23,6 +24,8 @@ class AcpClientFacade(
     private val processLauncher: AcpAgentProcessLauncher = AcpAgentProcessLauncher(),
     private val transportFactory: AcpTransportFactory = AcpTransportFactory(),
 ) {
+    private val logger = Logger.getInstance(AcpClientFacade::class.java)
+
     @OptIn(UnstableApi::class)
     suspend fun connect(
         endpointId: String,
@@ -52,6 +55,7 @@ class AcpClientFacade(
             ),
         ) { sessionId, _ ->
             IdeClientSessionOperations(
+                sessionId = sessionId.toString(),
                 fileSystemAdapter = FileSystemExtensionAdapter(workspaceRoot),
                 terminalAdapter = TerminalExtensionAdapter(workspaceRoot),
                 permissionRequestHandler = permissionRequestHandler,
@@ -76,8 +80,16 @@ class AcpClientFacade(
         val registered = registry.get(sessionId) ?: error("Session $sessionId not found")
         registered.session.prompt(listOf(ContentBlock.Text(prompt))).collect { event ->
             when (event) {
-                is Event.SessionUpdateEvent -> ingress.onSessionUpdate(sessionId, event.update)
-                is Event.PromptResponseEvent -> ingress.onPromptFinished(sessionId, event.response.stopReason.toReason())
+                is Event.SessionUpdateEvent -> {
+                    AcpProtocolDebugLogger.logSessionUpdate(logger, "prompt-stream", sessionId, event.update)
+                    ingress.onSessionUpdate(sessionId, event.update)
+                }
+
+                is Event.PromptResponseEvent -> {
+                    val reason = event.response.stopReason.toReason()
+                    AcpProtocolDebugLogger.logPromptFinished(logger, "prompt-stream", sessionId, reason)
+                    ingress.onPromptFinished(sessionId, reason)
+                }
             }
         }
     }

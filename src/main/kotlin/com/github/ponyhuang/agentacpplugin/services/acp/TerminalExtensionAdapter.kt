@@ -50,7 +50,9 @@ class TerminalExtensionAdapter(
     }
 
     override suspend fun terminalWaitForExit(terminalId: String, _meta: JsonElement?): WaitForTerminalExitResponse {
-        val code = terminals.getValue(terminalId).waitFor()
+        val code = withContext(Dispatchers.IO) {
+            terminals.getValue(terminalId).waitFor()
+        }
         return WaitForTerminalExitResponse(exitCode = code.toUInt())
     }
 

@@ -2,6 +2,7 @@ package com.github.ponyhuang.agentacpplugin.services
 
 import com.agentclientprotocol.model.SessionUpdate
 import com.github.ponyhuang.agentacpplugin.services.acp.AcpClientFacade
+import com.github.ponyhuang.agentacpplugin.services.acp.AcpProtocolDebugLogger
 import com.github.ponyhuang.agentacpplugin.services.acp.AcpSessionCoordinator
 import com.github.ponyhuang.agentacpplugin.services.acp.PendingPermissionRequest
 import com.github.ponyhuang.agentacpplugin.services.acp.PermissionRequestHandler
@@ -17,6 +18,7 @@ import com.github.ponyhuang.agentacpplugin.services.session.SessionStatus
 import com.github.ponyhuang.agentacpplugin.services.session.TurnCompletionReason
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +54,7 @@ class AcpProjectService private constructor(
     val project: Project,
     val dependencies: ServiceDependencies,
 ) : Disposable, SessionUpdateIngress {
+    private val logger = Logger.getInstance(AcpProjectService::class.java)
     private val scope = dependencies.scope
     private val endpointStore = dependencies.endpointStore
     private val turnStore = dependencies.turnStore
@@ -101,6 +104,7 @@ class AcpProjectService private constructor(
         }
         val endpointId = "endpoint-${UUID.randomUUID()}"
         val endpointName = trimmed.substringBefore(' ')
+        AcpProtocolDebugLogger.logConnectRequested(logger, endpointId, endpointName, trimmed, project.basePath?.let(Paths::get) ?: Path.of("."))
         endpointStore.createEndpoint(endpointId, endpointName)
         endpointStore.updateEndpoint(endpointId, AgentConnectionStatus.CONNECTING)
         updateSessionViews()
@@ -115,11 +119,13 @@ class AcpProjectService private constructor(
                     ingress = this@AcpProjectService,
                     permissionRequestHandler = permissionRequestHandler,
                 )
+                AcpProtocolDebugLogger.logConnectSucceeded(logger, endpointId, endpointName, sessionId)
                 endpointStore.updateEndpoint(endpointId, AgentConnectionStatus.CONNECTED, capabilitiesSummary = "ACP")
                 endpointStore.createSession(endpointId, sessionId, title = endpointName)
                 selectedSessionId = sessionId
                 updateSessionViews()
             }.onFailure { error ->
+                AcpProtocolDebugLogger.logConnectFailed(logger, endpointId, endpointName, error)
                 endpointStore.updateEndpoint(endpointId, AgentConnectionStatus.FAILED, errorSummary = error.message ?: "Connection failed")
                 updateSessionViews()
             }
@@ -132,6 +138,7 @@ class AcpProjectService private constructor(
         if (text.isEmpty()) {
             return
         }
+        AcpProtocolDebugLogger.logPromptSubmitted(logger, sessionId, text)
         turnStore.startTurn(sessionId, text)
         endpointStore.updateSession(sessionId) { session ->
             session.copy(
@@ -152,6 +159,7 @@ class AcpProjectService private constructor(
 
     fun cancelSelectedPrompt() {
         val sessionId = selectedSessionId ?: return
+        AcpProtocolDebugLogger.logPromptCancellationRequested(logger, sessionId)
         scope.launch {
             runCatching { sessionCoordinator.cancel(sessionId) }
                 .onFailure { onPromptFailed(sessionId, it.message ?: "Failed to cancel prompt") }
@@ -165,6 +173,7 @@ class AcpProjectService private constructor(
     }
 
     fun disconnectSession(sessionId: String) {
+        AcpProtocolDebugLogger.logSessionDisconnected(logger, sessionId)
         sessionCoordinator.disconnect(sessionId)
         endpointStore.updateSession(sessionId) {
             it.copy(sessionStatus = SessionStatus.CLOSED, bannerMessage = "Session disconnected")
@@ -173,15 +182,18 @@ class AcpProjectService private constructor(
     }
 
     override fun onSessionUpdate(sessionId: String, update: SessionUpdate) {
+        AcpProtocolDebugLogger.logSessionUpdate(logger, "ingress", sessionId, update)
         val intents = mapper.map(update)
         applyIntents(sessionId, intents)
     }
 
     override fun onPromptFinished(sessionId: String, reason: TurnCompletionReason) {
+        AcpProtocolDebugLogger.logPromptFinished(logger, "ingress", sessionId, reason)
         applyIntents(sessionId, mapper.promptFinished(reason))
     }
 
     override fun onPromptFailed(sessionId: String, message: String) {
+        AcpProtocolDebugLogger.logPromptFailed(logger, "ingress", sessionId, message)
         applyIntents(sessionId, mapper.promptFailed(message))
     }
 
