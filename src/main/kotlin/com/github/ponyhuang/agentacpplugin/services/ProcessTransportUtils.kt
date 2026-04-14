@@ -30,15 +30,16 @@ import kotlin.io.path.absolutePathString
 private val logger = Logger.getInstance(ProcessAcpRuntimeConnector::class.java)
 
 internal object ProcessAcpRuntimeConnector : AcpRuntimeConnector {
+    @OptIn(UnstableApi::class)
     override suspend fun connect(
         project: Project,
         scope: CoroutineScope,
-        command: List<String>,
+        descriptor: AcpAgentDescriptor,
         eventSink: suspend (AcpServiceEvent) -> Unit,
     ): AcpRuntimeConnection {
-        require(command.isNotEmpty()) { "ACP command must not be empty" }
+        require(descriptor.command.isNotBlank()) { "ACP command must not be empty" }
 
-        val processHandle = createProcessStdioTransport(scope, project, command)
+        val processHandle = createProcessStdioTransport(scope, project, descriptor)
         try {
             val protocol = Protocol(scope, processHandle.transport)
             val client = Client(protocol)
@@ -67,7 +68,7 @@ internal object ProcessAcpRuntimeConnector : AcpRuntimeConnector {
             ) { _, _ -> operations }
 
             return ProcessAcpRuntimeConnection(
-                command = command,
+                descriptor = descriptor,
                 processHandle = processHandle,
                 protocol = protocol,
                 client = client,
@@ -83,7 +84,7 @@ internal object ProcessAcpRuntimeConnector : AcpRuntimeConnector {
 }
 
 internal data class ProcessAcpRuntimeConnection(
-    override val command: List<String>,
+    override val descriptor: AcpAgentDescriptor,
     private val processHandle: ProcessTransportHandle,
     private val protocol: Protocol,
     override val client: Client,
@@ -146,14 +147,17 @@ internal data class ProcessTransportHandle(
 internal fun createProcessStdioTransport(
     coroutineScope: CoroutineScope,
     project: Project,
-    command: List<String>,
+    descriptor: AcpAgentDescriptor,
 ): ProcessTransportHandle {
-    val process = ProcessBuilder(command)
+    val processBuilder = ProcessBuilder(descriptor.commandLine)
         .directory(File(projectSessionRoot(project)))
         .redirectInput(ProcessBuilder.Redirect.PIPE)
         .redirectOutput(ProcessBuilder.Redirect.PIPE)
         .redirectError(ProcessBuilder.Redirect.PIPE)
-        .start()
+    descriptor.env.forEach { (key, value) ->
+        processBuilder.environment()[key] = value
+    }
+    val process = processBuilder.start()
 
     val stderrJob = coroutineScope.launch(Dispatchers.IO) {
         process.errorStream.bufferedReader().useLines { lines ->
@@ -170,7 +174,7 @@ internal fun createProcessStdioTransport(
         ioDispatcher = Dispatchers.IO,
         input = stdout,
         output = stdin,
-        name = "ACP:${command.first()}",
+        name = "ACP:${descriptor.id}",
     )
     return ProcessTransportHandle(process, transport, stderrJob)
 }
