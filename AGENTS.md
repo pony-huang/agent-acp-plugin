@@ -26,6 +26,8 @@ Use Java/Kotlin toolchain 21 as configured in Gradle.
 ## ACP Reference Baseline
 - Protocol overview: https://agentclientprotocol.com/protocol/overview
 - Kotlin SDK: https://github.com/agentclientprotocol/kotlin-sdk
+- Local ACP Kotlin SDK checkout: `E:\workplace\kotlin-sdk`
+- When inspecting ACP SDK source or types, prefer reading the local checkout at `E:\workplace\kotlin-sdk` instead of decompiling or unpacking Maven cache artifacts.
 - Treat protocol and SDK docs as the source of truth for ACP message/session behavior.
 
 ## Testing Guidelines

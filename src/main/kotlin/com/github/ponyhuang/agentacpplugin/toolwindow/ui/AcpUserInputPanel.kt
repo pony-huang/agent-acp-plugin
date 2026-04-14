@@ -1,10 +1,11 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
+import com.github.ponyhuang.agentacpplugin.toolwindow.BuiltInAcpAgentRegistry
+import com.github.ponyhuang.agentacpplugin.toolwindow.ToolWindowComposerState
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.ModelComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.PlanComboBoxAction
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
@@ -26,7 +27,13 @@ import javax.swing.JButton
 /**
  * @author: pony
  */
-class AcpUserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable {
+class AcpUserInputPanel(
+    val project: Project,
+    availableAgents: List<BuiltInAcpAgentRegistry.AgentDefinition> = BuiltInAcpAgentRegistry.agents,
+) : BorderLayoutPanel() {
+
+    var onSubmit: (String) -> Unit = {}
+    var onAgentChanged: (BuiltInAcpAgentRegistry.AgentDefinition) -> Unit = {}
 
     private val userInputTextArea = JBTextArea().apply {
         isOpaque = true
@@ -35,16 +42,25 @@ class AcpUserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable 
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
         addKeyListener(object : java.awt.event.KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
-                // TODO
-            }
-
-            override fun keyTyped(e: KeyEvent) {
-                // TODO
+                if (e.keyCode == KeyEvent.VK_ENTER && !e.isShiftDown) {
+                    e.consume()
+                    submit()
+                }
             }
         })
     }
 
-    private val agentComboBoxAction = AgentComboBoxAction(project)
+    private val agentComboBoxAction = AgentComboBoxAction(
+        availableAgents = availableAgents.map {
+            AgentComboBoxAction.AgentItem(
+                id = it.id,
+                displayName = it.displayName,
+                description = it.description,
+                agentDefinition = it,
+            )
+        },
+        onAgentSelected = { onAgentChanged(it.agentDefinition) }
+    )
     private val agentComboBox = agentComboBoxAction.createCustomComponent(
         agentComboBoxAction.templatePresentation, "UserInputPanel"
     ).apply {
@@ -80,7 +96,7 @@ class AcpUserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable 
         border = JBUI.Borders.empty()
         isOpaque = false
         addActionListener {
-            // TODO
+            submit()
         }
     }
 
@@ -111,6 +127,28 @@ class AcpUserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable 
         border = JBUI.Borders.empty(4)
         addToCenter(userInputTextArea)
         addToBottom(bottom)
+    }
+
+    fun setBusy(state: ToolWindowComposerState) {
+        val busy = state != ToolWindowComposerState.IDLE
+        sendButton.isEnabled = !busy
+        agentComboBox.isEnabled = !busy
+        userInputTextArea.isEnabled = true
+    }
+
+    fun clearInput() {
+        userInputTextArea.text = ""
+    }
+
+    fun selectedAgent(): BuiltInAcpAgentRegistry.AgentDefinition = agentComboBoxAction.getSelectedAgent().agentDefinition
+
+    private fun submit() {
+        val text = userInputTextArea.text.trim()
+        if (text.isEmpty()) {
+            return
+        }
+        onSubmit(text)
+        clearInput()
     }
 
     override fun paintComponent(g: Graphics) {
@@ -150,7 +188,4 @@ class AcpUserInputPanel(val project: Project) : BorderLayoutPanel(), Disposable 
         }
     }
 
-    override fun dispose() {
-        TODO("Not yet implemented")
-    }
 }

@@ -1,12 +1,12 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.action
 
+import com.github.ponyhuang.agentacpplugin.toolwindow.BuiltInAcpAgentRegistry
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction
 import com.intellij.openapi.project.DumbAware
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import java.awt.Color
 import javax.swing.JComponent
 
@@ -15,18 +15,11 @@ import javax.swing.JComponent
  * @author: pony
  */
 class AgentComboBoxAction(
-    private val project: Project? = null,
+    private val availableAgents: List<AgentItem>,
     private val onAgentSelected: (AgentItem) -> Unit = {}
 ) : ComboBoxAction(), DumbAware {
 
-    private val mockAgents = listOf(
-        AgentItem("code-agent", "Code Agent", "Claude Code for code generation and editing"),
-        AgentItem("review-agent", "Review Agent", "Code review and analysis agent"),
-        AgentItem("debug-agent", "Debug Agent", "Debugging and issue resolution agent"),
-        AgentItem("doc-agent", "Doc Agent", "Documentation generation agent")
-    )
-
-    private var selectedAgent: AgentItem = mockAgents.first()
+    private var selectedAgent: AgentItem = availableAgents.first()
 
     fun getSelectedAgent(): AgentItem = selectedAgent
 
@@ -35,7 +28,7 @@ class AgentComboBoxAction(
         dataContext: com.intellij.openapi.actionSystem.DataContext
     ): DefaultActionGroup {
         return DefaultActionGroup().apply {
-            mockAgents.forEach { agent ->
+            availableAgents.forEach { agent ->
                 add(object : AnAction(agent.displayName, agent.description, null) {
                     override fun actionPerformed(e: AnActionEvent) {
                         selectedAgent = agent
@@ -77,6 +70,7 @@ class AgentComboBoxAction(
     data class AgentItem(
         val id: String,
         val displayName: String,
-        val description: String
+        val description: String,
+        val agentDefinition: BuiltInAcpAgentRegistry.AgentDefinition,
     )
 }
