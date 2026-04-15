@@ -5,6 +5,12 @@
     <vendor>pony-huang</vendor>
 
     <depends>com.intellij.modules.platform</depends>
+    <resource-bundle>messages.MyBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <postStartupActivity implementation="com.github.ponyhuang.agentacpplugin.startup.MyProjectActivity" />
+        <toolWindow factoryClass="com.github.ponyhuang.agentacpplugin.toolwindow.AcpToolWindowFactory" id="MyToolWindow"/>
+    </extensions>
 
 
 </idea-plugin>
