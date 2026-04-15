@@ -1,5 +1,8 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.action
 
+import com.github.ponyhuang.agentacpplugin.services.AgentSelectionListener
+import com.github.ponyhuang.agentacpplugin.services.AgentSelectionNotifier
+import com.github.ponyhuang.agentacpplugin.services.BuiltInAcpAgentRegistry
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
@@ -16,8 +19,9 @@ import javax.swing.JComponent
  */
 class ModelComboBoxAction(
     private val project: Project? = null,
-    private val onModelSelected: (ModelItem) -> Unit = {}
-) : ComboBoxAction(), DumbAware {
+    private val onModelSelected: (ModelItem) -> Unit = {},
+    private val agentSelectionNotifier: AgentSelectionNotifier? = null
+) : ComboBoxAction(), DumbAware, AgentSelectionListener {
 
     private val mockModels = listOf(
         ModelItem("claude-opus-4-5", "claude-opus-4-5", "Claude Opus 4.5 - Most capable model"),
@@ -28,7 +32,25 @@ class ModelComboBoxAction(
 
     private var selectedModel: ModelItem = mockModels.first()
 
+    init {
+        agentSelectionNotifier?.addListener(this)
+    }
+
     fun getSelectedModel(): ModelItem = selectedModel
+
+    // AgentSelectionListener implementation
+    override fun onAgentSelected(agent: BuiltInAcpAgentRegistry.AgentDefinition) {
+        // Models are UNSTABLE - currently using mock data
+        // In the future, could filter models based on agent capabilities
+    }
+
+    override fun onAgentDeselected() {
+        // Reset to default model if needed
+    }
+
+    fun dispose() {
+        agentSelectionNotifier?.removeListener(this)
+    }
 
     override fun createPopupActionGroup(
         component: JComponent,

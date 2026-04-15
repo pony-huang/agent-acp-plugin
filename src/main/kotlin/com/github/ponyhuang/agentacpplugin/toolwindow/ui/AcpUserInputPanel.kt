@@ -1,5 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
+import com.github.ponyhuang.agentacpplugin.services.AgentSelectionNotifier
+import com.github.ponyhuang.agentacpplugin.services.BuiltInAcpAgentRegistry
 import com.github.ponyhuang.agentacpplugin.toolwindow.ToolWindowComposerState
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.ModelComboBoxAction
@@ -7,7 +9,6 @@ import com.github.ponyhuang.agentacpplugin.toolwindow.action.PlanComboBoxAction
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.project.Project
-import com.intellij.rml.dfa.analyzes.input.Object
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.dsl.builder.AlignX
@@ -29,10 +30,18 @@ import javax.swing.JButton
  */
 class AcpUserInputPanel(
     val project: Project,
+    agentItems: List<AgentComboBoxAction.AgentItem>,
+    private val agentSelectionNotifier: AgentSelectionNotifier? = null,
+    onSubmit: (String) -> Unit = {},
+    onAgentChanged: (BuiltInAcpAgentRegistry.AgentDefinition) -> Unit = {},
+    onModelChanged: (ModelComboBoxAction.ModelItem) -> Unit = {},
+    onPlanChanged: (PlanComboBoxAction.PlanItem) -> Unit = {}
 ) : BorderLayoutPanel() {
 
-    var onSubmit: (String) -> Unit = {}
-    var onAgentChanged: (Object) -> Unit = {}
+    var onSubmit: (String) -> Unit = onSubmit
+    var onAgentChanged: (BuiltInAcpAgentRegistry.AgentDefinition) -> Unit = onAgentChanged
+    var onModelChanged: (ModelComboBoxAction.ModelItem) -> Unit = onModelChanged
+    var onPlanChanged: (PlanComboBoxAction.PlanItem) -> Unit = onPlanChanged
 
     private val userInputTextArea = JBTextArea().apply {
         isOpaque = true
@@ -50,9 +59,9 @@ class AcpUserInputPanel(
     }
 
     private val agentComboBoxAction = AgentComboBoxAction(
-        // todo
-        availableAgents = emptyList(),
-        onAgentSelected = { onAgentChanged(it.agentDefinition) }
+        availableAgents = agentItems,
+        onAgentSelected = { onAgentChanged(it.agentDefinition) },
+        selectionNotifier = agentSelectionNotifier
     )
     private val agentComboBox = agentComboBoxAction.createCustomComponent(
         agentComboBoxAction.templatePresentation, "UserInputPanel"
@@ -63,7 +72,11 @@ class AcpUserInputPanel(
         minimumSize = java.awt.Dimension(100, 24)
     }
 
-    private val planComboBoxAction = PlanComboBoxAction(project)
+    private val planComboBoxAction = PlanComboBoxAction(
+        project = project,
+        onPlanSelected = onPlanChanged,
+        agentSelectionNotifier = agentSelectionNotifier
+    )
     private val planComboBox = planComboBoxAction.createCustomComponent(
         planComboBoxAction.templatePresentation, "UserInputPanel"
     ).apply {
@@ -73,7 +86,11 @@ class AcpUserInputPanel(
         minimumSize = java.awt.Dimension(100, 24)
     }
 
-    private val modelComboBoxAction = ModelComboBoxAction(project)
+    private val modelComboBoxAction = ModelComboBoxAction(
+        project = project,
+        onModelSelected = onModelChanged,
+        agentSelectionNotifier = agentSelectionNotifier
+    )
     private val modelComboBox = modelComboBoxAction.createCustomComponent(
         modelComboBoxAction.templatePresentation, "UserInputPanel"
     ).apply {

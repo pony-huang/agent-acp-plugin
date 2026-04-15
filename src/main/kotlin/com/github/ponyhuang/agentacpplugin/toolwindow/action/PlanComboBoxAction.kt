@@ -1,5 +1,8 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.action
 
+import com.github.ponyhuang.agentacpplugin.services.AgentSelectionListener
+import com.github.ponyhuang.agentacpplugin.services.AgentSelectionNotifier
+import com.github.ponyhuang.agentacpplugin.services.BuiltInAcpAgentRegistry
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
@@ -16,8 +19,9 @@ import javax.swing.JComponent
  */
 class PlanComboBoxAction(
     private val project: Project? = null,
-    private val onPlanSelected: (PlanItem) -> Unit = {}
-) : ComboBoxAction(), DumbAware {
+    private val onPlanSelected: (PlanItem) -> Unit = {},
+    private val agentSelectionNotifier: AgentSelectionNotifier? = null
+) : ComboBoxAction(), DumbAware, AgentSelectionListener {
 
     private val mockPlans = listOf(
         PlanItem("read-only", "Read Only", "Can read files and code only"),
@@ -28,7 +32,24 @@ class PlanComboBoxAction(
 
     private var selectedPlan: PlanItem = mockPlans[1] // Default to read-write
 
+    init {
+        agentSelectionNotifier?.addListener(this)
+    }
+
     fun getSelectedPlan(): PlanItem = selectedPlan
+
+    // AgentSelectionListener implementation
+    override fun onAgentSelected(agent: BuiltInAcpAgentRegistry.AgentDefinition) {
+        // Plans could be filtered based on agent capabilities in the future
+    }
+
+    override fun onAgentDeselected() {
+        // Reset to default plan if needed
+    }
+
+    fun dispose() {
+        agentSelectionNotifier?.removeListener(this)
+    }
 
     override fun createPopupActionGroup(
         component: JComponent,

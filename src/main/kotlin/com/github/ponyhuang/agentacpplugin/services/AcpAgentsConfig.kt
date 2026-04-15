@@ -55,7 +55,8 @@ class AcpAgentsConfigService(private val project: Project) {
             coroutineScope = coroutineScope,
             project = project,
             cmd = cmd,
-            envs = envs
+            envs = envs,
+            sessionUpdateSink = { }
         )
     }
 

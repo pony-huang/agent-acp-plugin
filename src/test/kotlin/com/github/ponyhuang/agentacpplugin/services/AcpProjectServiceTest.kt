@@ -13,7 +13,8 @@ class AcpProjectServiceTest : BasePlatformTestCase() {
                 project = project,
                 coroutineScope = CoroutineScope(Dispatchers.Unconfined),
                 cmd = listOf("npx.cmd", "@agentclientprotocol/claude-agent-acp"),
-                envs = emptyList<String>()
+                envs = emptyList<String>(),
+                sessionUpdateSink = { }
             )
             service.connect()
             var message = service.newSession()

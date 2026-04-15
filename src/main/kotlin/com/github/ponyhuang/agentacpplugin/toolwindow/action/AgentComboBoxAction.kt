@@ -1,5 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.action
 
+import com.github.ponyhuang.agentacpplugin.services.AgentSelectionNotifier
+import com.github.ponyhuang.agentacpplugin.services.BuiltInAcpAgentRegistry
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
@@ -15,7 +17,8 @@ import javax.swing.JComponent
  */
 class AgentComboBoxAction(
     private val availableAgents: List<AgentItem>,
-    private val onAgentSelected: (AgentItem) -> Unit = {}
+    private val onAgentSelected: (AgentItem) -> Unit = {},
+    private val selectionNotifier: AgentSelectionNotifier? = null
 ) : ComboBoxAction(), DumbAware {
 
     private var selectedAgent: AgentItem = availableAgents.first()
@@ -33,6 +36,7 @@ class AgentComboBoxAction(
                         selectedAgent = agent
                         templatePresentation.text = agent.displayName
                         onAgentSelected(agent)
+                        selectionNotifier?.notifyAgentSelected(agent.agentDefinition)
                         if (component is ComboBoxButton) {
                             component.text = agent.displayName
                             component.repaint()
