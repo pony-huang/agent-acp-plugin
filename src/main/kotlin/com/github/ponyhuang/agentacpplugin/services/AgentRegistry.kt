@@ -4,10 +4,10 @@ package com.github.ponyhuang.agentacpplugin.services
  * Registry for built-in ACP agents.
  * Maps display names to agent configuration for launching via npx.
  */
-object BuiltInAcpAgentRegistry {
+object AgentRegistry {
 
     /**
-     * Represents a built-in agent definition.
+     * Represents a built-in agent definition for launch configuration.
      */
     data class AgentDefinition(
         val id: String,
@@ -40,8 +40,8 @@ object BuiltInAcpAgentRegistry {
 /**
  * Agent selection change listener.
  */
-interface AgentSelectionListener {
-    fun onAgentSelected(agent: BuiltInAcpAgentRegistry.AgentDefinition)
+interface AgentListener {
+    fun onAgentSelected(agent: AgentRegistry.AgentDefinition)
     fun onAgentDeselected()
 }
 
@@ -49,18 +49,18 @@ interface AgentSelectionListener {
  * Notifier for agent selection changes.
  * Notifies Model and Plan ComboBoxes when agent selection changes.
  */
-class AgentSelectionNotifier {
-    private val listeners = mutableListOf<AgentSelectionListener>()
+class AgentNotifier {
+    private val listeners = mutableListOf<AgentListener>()
 
-    fun addListener(listener: AgentSelectionListener) {
+    fun addListener(listener: AgentListener) {
         listeners.add(listener)
     }
 
-    fun removeListener(listener: AgentSelectionListener) {
+    fun removeListener(listener: AgentListener) {
         listeners.remove(listener)
     }
 
-    fun notifyAgentSelected(agent: BuiltInAcpAgentRegistry.AgentDefinition) {
+    fun notifyAgentSelected(agent: AgentRegistry.AgentDefinition) {
         listeners.forEach { it.onAgentSelected(agent) }
     }
 

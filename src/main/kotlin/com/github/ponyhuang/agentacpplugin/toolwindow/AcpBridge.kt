@@ -3,7 +3,7 @@ package com.github.ponyhuang.agentacpplugin.toolwindow
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 
-class AcpToolWindowAcpBridge(
+class AcpBridge(
     private val setComposerState: (ToolWindowComposerState) -> Unit,
     private val uiExecutor: (((() -> Unit))) -> Unit = { action ->
         ApplicationManager.getApplication().invokeLater(action)

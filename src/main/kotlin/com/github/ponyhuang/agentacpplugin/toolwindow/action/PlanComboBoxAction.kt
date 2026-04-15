@@ -1,8 +1,8 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.action
 
-import com.github.ponyhuang.agentacpplugin.services.AgentSelectionListener
-import com.github.ponyhuang.agentacpplugin.services.AgentSelectionNotifier
-import com.github.ponyhuang.agentacpplugin.services.BuiltInAcpAgentRegistry
+import com.github.ponyhuang.agentacpplugin.services.AgentListener
+import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
+import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
@@ -20,8 +20,8 @@ import javax.swing.JComponent
 class PlanComboBoxAction(
     private val project: Project? = null,
     private val onPlanSelected: (PlanItem) -> Unit = {},
-    private val agentSelectionNotifier: AgentSelectionNotifier? = null
-) : ComboBoxAction(), DumbAware, AgentSelectionListener {
+    private val agentNotifier: AgentNotifier? = null
+) : ComboBoxAction(), DumbAware, AgentListener {
 
     private val mockPlans = listOf(
         PlanItem("read-only", "Read Only", "Can read files and code only"),
@@ -33,13 +33,13 @@ class PlanComboBoxAction(
     private var selectedPlan: PlanItem = mockPlans[1] // Default to read-write
 
     init {
-        agentSelectionNotifier?.addListener(this)
+        agentNotifier?.addListener(this)
     }
 
     fun getSelectedPlan(): PlanItem = selectedPlan
 
-    // AgentSelectionListener implementation
-    override fun onAgentSelected(agent: BuiltInAcpAgentRegistry.AgentDefinition) {
+    // AgentListener implementation
+    override fun onAgentSelected(agent: AgentRegistry.AgentDefinition) {
         // Plans could be filtered based on agent capabilities in the future
     }
 
@@ -48,7 +48,7 @@ class PlanComboBoxAction(
     }
 
     fun dispose() {
-        agentSelectionNotifier?.removeListener(this)
+        agentNotifier?.removeListener(this)
     }
 
     override fun createPopupActionGroup(

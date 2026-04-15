@@ -1,7 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow
 
-import com.github.ponyhuang.agentacpplugin.services.AgentSelectionNotifier
-import com.github.ponyhuang.agentacpplugin.services.BuiltInAcpAgentRegistry
+import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
+import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpConversationPanel
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
@@ -24,10 +24,10 @@ class AcpToolWindowPanel(
     private val configService = project.service<com.github.ponyhuang.agentacpplugin.services.AcpAgentsConfigService>()
 
     // Create agent selection notifier for linkage
-    private val agentSelectionNotifier = AgentSelectionNotifier()
+    private val agentNotifier = AgentNotifier()
 
     // Get available agents from config
-    private val availableAgents = BuiltInAcpAgentRegistry.getAvailableAgents(configService)
+    private val availableAgents = AgentRegistry.getAvailableAgents(configService)
 
     // Create AgentItem list
     private val agentItems = availableAgents.map { agent ->
@@ -45,12 +45,12 @@ class AcpToolWindowPanel(
     private val userInputPanel = AcpUserInputPanel(
         project = project,
         agentItems = agentItems,
-        agentSelectionNotifier = agentSelectionNotifier,
+        agentNotifier = agentNotifier,
         onModelChanged = { model -> logger.info("Model changed: ${model.id}") },
         onPlanChanged = { plan -> logger.info("Plan changed: ${plan.id}") }
     )
 
-    private val controller = AcpToolWindowAcpBridge(
+    private val controller = AcpBridge(
         setComposerState = userInputPanel::setBusy,
     )
 
