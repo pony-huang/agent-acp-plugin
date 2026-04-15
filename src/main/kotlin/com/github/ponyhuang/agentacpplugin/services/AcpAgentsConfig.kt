@@ -3,7 +3,6 @@ package com.github.ponyhuang.agentacpplugin.services
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
 /**
@@ -15,14 +14,14 @@ class AcpAgentsConfigService(private val project: Project) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    @Serializable
-    private data class AgentsConfig(val agents: JsonObject)
-
     private var cachedConfig: JsonObject? = null
 
     private fun parseConfig(): JsonObject {
         if (cachedConfig == null) {
-            cachedConfig = json.decodeFromString<AgentsConfig>(config).agents
+            cachedConfig = json.parseToJsonElement(config)
+                .jsonObject["agents"]
+                ?.jsonObject
+                ?: buildJsonObject { }
         }
         return cachedConfig!!
     }

@@ -6,7 +6,6 @@ import org.gradle.api.tasks.testing.logging.TestLogEvent
 plugins {
     id("java") // Java support
     alias(libs.plugins.kotlin) // Kotlin support
-    alias(libs.plugins.kotlinSerialization) // Kotlin serialization compiler plugin
     alias(libs.plugins.intelliJPlatform) // IntelliJ Platform Gradle Plugin
     alias(libs.plugins.changelog) // Gradle Changelog Plugin
     alias(libs.plugins.qodana) // Gradle Qodana Plugin
