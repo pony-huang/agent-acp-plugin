@@ -33,7 +33,7 @@ class AcpUserInputPanel(
     agentItems: List<AgentComboBoxAction.AgentItem>,
     private val agentNotifier: AgentNotifier? = null,
     var onSubmit: (String) -> Unit = {},
-    var onAgentChanged: (AgentRegistry.AgentDefinition) -> Unit = {},
+    var onAgentChanged: (AgentComboBoxAction.AgentItem?) -> Unit = {},
     var onModelChanged: (ModelComboBoxAction.ModelItem) -> Unit = {},
     var onPlanChanged: (PlanComboBoxAction.PlanItem) -> Unit = {}
 ) : BorderLayoutPanel() {
@@ -55,7 +55,7 @@ class AcpUserInputPanel(
 
     private val agentComboBoxAction = AgentComboBoxAction(
         availableAgents = agentItems,
-        onAgentSelected = { onAgentChanged(it.agentDefinition) },
+        onAgentSelected = { onAgentChanged(it) },
         agentNotifier = agentNotifier
     )
     private val agentComboBox = agentComboBoxAction.createCustomComponent(
@@ -145,8 +145,8 @@ class AcpUserInputPanel(
         userInputTextArea.text = ""
     }
 
-    fun selectedAgent(): AgentRegistry.AgentDefinition =
-        agentComboBoxAction.getSelectedAgent().agentDefinition
+    fun selectedAgent(): AgentRegistry.AgentDefinition? =
+        agentComboBoxAction.getSelectedAgent()?.agentDefinition
 
     private fun submit() {
         val text = userInputTextArea.text.trim()

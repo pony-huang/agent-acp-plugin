@@ -21,9 +21,11 @@ class AgentComboBoxAction(
     private val agentNotifier: AgentNotifier? = null
 ) : ComboBoxAction(), DumbAware {
 
-    private var selectedAgent: AgentItem = availableAgents.first()
+    private var selectedAgent: AgentItem? = null
 
-    fun getSelectedAgent(): AgentItem = selectedAgent
+    fun getSelectedAgent(): AgentItem? = selectedAgent
+
+    fun hasSelectedAgent(): Boolean = selectedAgent != null
 
     override fun createPopupActionGroup(
         component: JComponent,
@@ -45,7 +47,7 @@ class AgentComboBoxAction(
 
                     override fun update(e: AnActionEvent) {
                         super.update(e)
-                        e.presentation.isPerformGroup = (selectedAgent.id == agent.id)
+                        e.presentation.isPerformGroup = (selectedAgent?.id == agent.id)
                     }
                 })
             }
@@ -57,7 +59,7 @@ class AgentComboBoxAction(
         place: String
     ): JComponent {
         val button = createComboBoxButton(presentation)
-        button.text = selectedAgent.displayName
+        button.text = selectedAgent?.displayName ?: "Select Agent"
         button.setForeground(EditorColorsManager.getInstance().globalScheme.defaultForeground)
         button.setBorder(null)
         button.putClientProperty("JButton.backgroundColor", Color(0, 0, 0, 0))
@@ -66,7 +68,7 @@ class AgentComboBoxAction(
 
     override fun update(event: AnActionEvent) {
         super.update(event)
-        event.presentation.text = selectedAgent.displayName
+        event.presentation.text = selectedAgent?.displayName ?: "Select Agent"
         event.presentation.isVisible = true
     }
 

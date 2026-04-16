@@ -15,6 +15,9 @@ import com.intellij.openapi.ui.Splitter
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.openapi.util.Disposer
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationType
+import com.intellij.notification.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -74,7 +77,10 @@ class AcpToolWindowPanel(
                 try {
                     val cwd = project.basePath ?: System.getProperty("user.dir")
                     if (!sessionService.isConnected.value) {
-                        sessionService.createSession(userInputPanel.selectedAgent(), cwd)
+                        val agent = userInputPanel.selectedAgent()
+                        if (agent != null) {
+                            sessionService.createSession(agent, cwd)
+                        }
                     }
                     sessionService.sendPrompt(prompt)
                 } catch (t: Throwable) {
@@ -82,8 +88,35 @@ class AcpToolWindowPanel(
                 }
             }
         }
-        userInputPanel.onAgentChanged = { agent ->
-            logger.info("Agent changed: ${agent.displayName}")
+        userInputPanel.onAgentChanged = { agentItem ->
+            if (agentItem != null) {
+                uiScope.launch {
+                    try {
+                        val cwd = project.basePath ?: System.getProperty("user.dir")
+                        sessionService.createSession(agentItem.agentDefinition, cwd)
+                        Notifications.Bus.notify(
+                            Notification(
+                                "ACP Connection",
+                                "Connected to ${agentItem.displayName}",
+                                "ACP session established successfully",
+                                NotificationType.INFORMATION
+                            ),
+                            project
+                        )
+                    } catch (t: Throwable) {
+                        logger.warn("Failed to create session", t)
+                        Notifications.Bus.notify(
+                            Notification(
+                                "ACP Connection Error",
+                                "Failed to connect to ${agentItem.displayName}",
+                                t.message ?: "Unknown error",
+                                NotificationType.ERROR
+                            ),
+                            project
+                        )
+                    }
+                }
+            }
         }
         userInputPanel.setBusy(ToolWindowComposerState.IDLE)
         uiScope.launch {
