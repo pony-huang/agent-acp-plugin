@@ -10,7 +10,6 @@
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity implementation="com.github.ponyhuang.agentacpplugin.startup.MyProjectActivity" />
         <toolWindow factoryClass="com.github.ponyhuang.agentacpplugin.toolwindow.AcpToolWindowFactory" id="ACP Chat"/>
-        <toolWindow factoryClass="com.github.ponyhuang.agentacpplugin.toolwindow.AcpTrafficToolWindowFactory" id="ACP Traffic"/>
     </extensions>
 
 
