@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.action
 
+import com.agentclientprotocol.model.SessionMode
 import com.github.ponyhuang.agentacpplugin.services.AgentListener
 import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
 import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
@@ -23,20 +24,29 @@ class PlanComboBoxAction(
     private val agentNotifier: AgentNotifier? = null
 ) : ComboBoxAction(), DumbAware, AgentListener {
 
-    private val mockPlans = listOf(
-        PlanItem("read-only", "Read Only", "Can read files and code only"),
-        PlanItem("read-write", "Read/Write", "Can read and modify files"),
-        PlanItem("execute", "Execute", "Can execute commands and scripts"),
-        PlanItem("full-access", "Full Access", "Full system access with caution")
-    )
+    private var plans: List<PlanItem> = emptyList()
 
-    private var selectedPlan: PlanItem = mockPlans[1] // Default to read-write
+    private var selectedPlan: PlanItem? = null
 
     init {
         agentNotifier?.addListener(this)
     }
 
-    fun getSelectedPlan(): PlanItem = selectedPlan
+    fun getSelectedPlan(): PlanItem? = selectedPlan
+
+    fun updateModes(modes: List<SessionMode>) {
+        plans = modes.map { mode ->
+            PlanItem(
+                id = mode.id.toString(),
+                displayName = mode.name,
+                description = mode.description ?: ""
+            )
+        }
+        if (plans.isNotEmpty() && selectedPlan == null) {
+            // Default to read-write if available, otherwise first
+            selectedPlan = plans.find { it.id == "read-write" } ?: plans.first()
+        }
+    }
 
     // AgentListener implementation
     override fun onAgentSelected(agent: AgentRegistry.AgentDefinition) {
@@ -55,8 +65,20 @@ class PlanComboBoxAction(
         component: JComponent,
         dataContext: com.intellij.openapi.actionSystem.DataContext
     ): DefaultActionGroup {
+        val planList = if (plans.isEmpty()) {
+            // Fallback to hardcoded plans if no real modes available
+            listOf(
+                PlanItem("read-only", "Read Only", "Can read files and code only"),
+                PlanItem("read-write", "Read/Write", "Can read and modify files"),
+                PlanItem("execute", "Execute", "Can execute commands and scripts"),
+                PlanItem("full-access", "Full Access", "Full system access with caution")
+            )
+        } else {
+            plans
+        }
+
         return DefaultActionGroup().apply {
-            mockPlans.forEach { plan ->
+            planList.forEach { plan ->
                 add(object : AnAction(plan.displayName, plan.description, null) {
                     override fun actionPerformed(e: AnActionEvent) {
                         selectedPlan = plan
@@ -70,7 +92,7 @@ class PlanComboBoxAction(
 
                     override fun update(e: AnActionEvent) {
                         super.update(e)
-                        e.presentation.isPerformGroup = (selectedPlan.id == plan.id)
+                        e.presentation.isPerformGroup = (selectedPlan?.id == plan.id)
                     }
                 })
             }
@@ -82,7 +104,7 @@ class PlanComboBoxAction(
         place: String
     ): JComponent {
         val button = createComboBoxButton(presentation)
-        button.text = selectedPlan.displayName
+        button.text = selectedPlan?.displayName ?: "Select Plan"
         button.setForeground(EditorColorsManager.getInstance().globalScheme.defaultForeground)
         button.setBorder(null)
         button.putClientProperty("JButton.backgroundColor", Color(0, 0, 0, 0))
@@ -91,7 +113,7 @@ class PlanComboBoxAction(
 
     override fun update(event: AnActionEvent) {
         super.update(event)
-        event.presentation.text = selectedPlan.displayName
+        event.presentation.text = selectedPlan?.displayName ?: "Select Plan"
         event.presentation.isVisible = true
     }
 
