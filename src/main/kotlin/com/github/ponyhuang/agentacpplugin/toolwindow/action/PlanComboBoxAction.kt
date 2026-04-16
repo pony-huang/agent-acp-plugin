@@ -25,8 +25,8 @@ class PlanComboBoxAction(
 ) : ComboBoxAction(), DumbAware, AgentListener {
 
     private var plans: List<PlanItem> = emptyList()
-
     private var selectedPlan: PlanItem? = null
+    private var buttonComponent: ComboBoxButton? = null
 
     init {
         agentNotifier?.addListener(this)
@@ -42,9 +42,30 @@ class PlanComboBoxAction(
                 description = mode.description ?: ""
             )
         }
-        if (plans.isNotEmpty() && selectedPlan == null) {
-            // Default to read-write if available, otherwise first
-            selectedPlan = plans.find { it.id == "read-write" } ?: plans.first()
+        selectedPlan = selectedPlan?.let { current ->
+            plans.find { it.id == current.id }
+        } ?: plans.firstOrNull()
+        refreshPresentation()
+    }
+
+    fun setSelectedById(planId: String?) {
+        selectedPlan = plans.find { it.id == planId } ?: selectedPlan?.takeIf { planId == null }
+        refreshPresentation()
+    }
+
+    fun clearModes() {
+        plans = emptyList()
+        selectedPlan = null
+        refreshPresentation()
+    }
+
+    private fun refreshPresentation() {
+        val text = selectedPlan?.displayName ?: "Select Plan"
+        templatePresentation.text = text
+        buttonComponent?.let { button ->
+            button.text = text
+            button.isEnabled = plans.isNotEmpty()
+            button.repaint()
         }
     }
 
@@ -65,29 +86,13 @@ class PlanComboBoxAction(
         component: JComponent,
         dataContext: com.intellij.openapi.actionSystem.DataContext
     ): DefaultActionGroup {
-        val planList = if (plans.isEmpty()) {
-            // Fallback to hardcoded plans if no real modes available
-            listOf(
-                PlanItem("read-only", "Read Only", "Can read files and code only"),
-                PlanItem("read-write", "Read/Write", "Can read and modify files"),
-                PlanItem("execute", "Execute", "Can execute commands and scripts"),
-                PlanItem("full-access", "Full Access", "Full system access with caution")
-            )
-        } else {
-            plans
-        }
-
         return DefaultActionGroup().apply {
-            planList.forEach { plan ->
+            plans.forEach { plan ->
                 add(object : AnAction(plan.displayName, plan.description, null) {
                     override fun actionPerformed(e: AnActionEvent) {
                         selectedPlan = plan
-                        templatePresentation.text = plan.displayName
                         onPlanSelected(plan)
-                        if (component is ComboBoxButton) {
-                            component.text = plan.displayName
-                            component.repaint()
-                        }
+                        refreshPresentation()
                     }
 
                     override fun update(e: AnActionEvent) {
@@ -104,10 +109,12 @@ class PlanComboBoxAction(
         place: String
     ): JComponent {
         val button = createComboBoxButton(presentation)
+        buttonComponent = button
         button.text = selectedPlan?.displayName ?: "Select Plan"
         button.setForeground(EditorColorsManager.getInstance().globalScheme.defaultForeground)
         button.setBorder(null)
         button.putClientProperty("JButton.backgroundColor", Color(0, 0, 0, 0))
+        button.isEnabled = plans.isNotEmpty()
         return button
     }
 
@@ -115,6 +122,7 @@ class PlanComboBoxAction(
         super.update(event)
         event.presentation.text = selectedPlan?.displayName ?: "Select Plan"
         event.presentation.isVisible = true
+        event.presentation.isEnabled = plans.isNotEmpty()
     }
 
     data class PlanItem(

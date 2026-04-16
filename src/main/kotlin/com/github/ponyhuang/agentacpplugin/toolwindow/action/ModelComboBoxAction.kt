@@ -27,8 +27,8 @@ class ModelComboBoxAction(
 ) : ComboBoxAction(), DumbAware, AgentListener {
 
     private var models: List<ModelItem> = emptyList()
-
     private var selectedModel: ModelItem? = null
+    private var buttonComponent: ComboBoxButton? = null
 
     init {
         agentNotifier?.addListener(this)
@@ -45,8 +45,30 @@ class ModelComboBoxAction(
                 description = info.description ?: ""
             )
         }
-        if (models.isNotEmpty() && selectedModel == null) {
-            selectedModel = models.first()
+        selectedModel = selectedModel?.let { current ->
+            models.find { it.id == current.id }
+        } ?: models.firstOrNull()
+        refreshPresentation()
+    }
+
+    fun setSelectedById(modelId: String?) {
+        selectedModel = models.find { it.id == modelId } ?: selectedModel?.takeIf { modelId == null }
+        refreshPresentation()
+    }
+
+    fun clearModels() {
+        models = emptyList()
+        selectedModel = null
+        refreshPresentation()
+    }
+
+    private fun refreshPresentation() {
+        val text = selectedModel?.displayName ?: "Select Model"
+        templatePresentation.text = text
+        buttonComponent?.let { button ->
+            button.text = text
+            button.isEnabled = models.isNotEmpty()
+            button.repaint()
         }
     }
 
@@ -68,29 +90,13 @@ class ModelComboBoxAction(
         component: JComponent,
         dataContext: com.intellij.openapi.actionSystem.DataContext
     ): DefaultActionGroup {
-        val modelList = if (models.isEmpty()) {
-            // Fallback to hardcoded models if no real models available
-            listOf(
-                ModelItem("claude-opus-4-5", "claude-opus-4-5", "Claude Opus 4.5 - Most capable model"),
-                ModelItem("claude-sonnet-4-7", "claude-sonnet-4-7", "Claude Sonnet 4.7 - Balanced performance"),
-                ModelItem("claude-haiku-4", "claude-haiku-4", "Claude Haiku 4 - Fast and efficient"),
-                ModelItem("claude-3-5-sonnet", "claude-3-5-sonnet", "Claude 3.5 Sonnet - Legacy model")
-            )
-        } else {
-            models
-        }
-
         return DefaultActionGroup().apply {
-            modelList.forEach { model ->
+            models.forEach { model ->
                 add(object : AnAction(model.displayName, model.description, null) {
                     override fun actionPerformed(e: AnActionEvent) {
                         selectedModel = model
-                        templatePresentation.text = model.displayName
                         onModelSelected(model)
-                        if (component is ComboBoxButton) {
-                            component.text = model.displayName
-                            component.repaint()
-                        }
+                        refreshPresentation()
                     }
 
                     override fun update(e: AnActionEvent) {
@@ -107,10 +113,12 @@ class ModelComboBoxAction(
         place: String
     ): JComponent {
         val button = createComboBoxButton(presentation)
+        buttonComponent = button
         button.text = selectedModel?.displayName ?: "Select Model"
         button.setForeground(EditorColorsManager.getInstance().globalScheme.defaultForeground)
         button.setBorder(null)
         button.putClientProperty("JButton.backgroundColor", Color(0, 0, 0, 0))
+        button.isEnabled = models.isNotEmpty()
         return button
     }
 
@@ -118,6 +126,7 @@ class ModelComboBoxAction(
         super.update(event)
         event.presentation.text = selectedModel?.displayName ?: "Select Model"
         event.presentation.isVisible = true
+        event.presentation.isEnabled = models.isNotEmpty()
     }
 
     data class ModelItem(

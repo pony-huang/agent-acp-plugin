@@ -12,8 +12,6 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.ui.Splitter
-import com.intellij.ui.ScrollPaneFactory
-import com.intellij.ui.components.JBScrollPane
 import com.intellij.openapi.util.Disposer
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
@@ -22,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -66,10 +65,6 @@ class AcpToolWindowPanel(
         setComposerState = userInputPanel::setBusy,
     )
 
-    private val conversationScrollPane: JBScrollPane = ScrollPaneFactory.createScrollPane(
-        conversationPanel, true
-    ) as JBScrollPane
-
     init {
         logger.info("AcpToolWindowPanel init")
         userInputPanel.onSubmit = { prompt ->
@@ -93,6 +88,7 @@ class AcpToolWindowPanel(
                 uiScope.launch {
                     try {
                         val cwd = project.basePath ?: System.getProperty("user.dir")
+                        sessionService.disconnect()
                         sessionService.createSession(agentItem.agentDefinition, cwd)
                         Notifications.Bus.notify(
                             Notification(
@@ -118,12 +114,58 @@ class AcpToolWindowPanel(
                 }
             }
         }
+        userInputPanel.onPlanChanged = { plan ->
+            uiScope.launch {
+                try {
+                    sessionService.setMode(plan.id)
+                } catch (t: Throwable) {
+                    logger.warn("Failed to change mode", t)
+                }
+            }
+        }
+        userInputPanel.onModelChanged = { model ->
+            uiScope.launch {
+                try {
+                    sessionService.setModel(model.id)
+                } catch (t: Throwable) {
+                    logger.warn("Failed to change model", t)
+                }
+            }
+        }
         userInputPanel.setBusy(ToolWindowComposerState.IDLE)
+        userInputPanel.setSessionConnected(false)
         uiScope.launch {
             sessionService.isLoading.collectLatest { loading ->
                 userInputPanel.setBusy(
                     if (loading) ToolWindowComposerState.SENDING else ToolWindowComposerState.IDLE
                 )
+            }
+        }
+        uiScope.launch {
+            sessionService.isConnected.collectLatest { connected ->
+                userInputPanel.setSessionConnected(connected)
+                if (!connected) {
+                    userInputPanel.clearSessionSelectors()
+                }
+            }
+        }
+        uiScope.launch {
+            combine(sessionService.availableModes, sessionService.currentModeId) { modes, currentModeId ->
+                modes to currentModeId
+            }.collectLatest { (modes, currentModeId) ->
+                userInputPanel.updateModes(modes, currentModeId.ifBlank { null })
+            }
+        }
+        uiScope.launch {
+            combine(sessionService.availableModels, sessionService.currentModelId) { models, currentModelId ->
+                models to currentModelId
+            }.collectLatest { (models, currentModelId) ->
+                userInputPanel.updateModels(models, currentModelId.ifBlank { null })
+            }
+        }
+        uiScope.launch {
+            sessionService.availableCommands.collectLatest { commands ->
+                userInputPanel.updateCommandHint(commands.isNotEmpty())
             }
         }
         Disposer.register(disposable, controller)
@@ -132,7 +174,7 @@ class AcpToolWindowPanel(
             true,   // vertical split
             0.8f    // 8:2 ratio
         ).apply {
-            setFirstComponent(conversationScrollPane)
+            setFirstComponent(conversationPanel)
             setSecondComponent(userInputPanel)
         }
         splitter.setHonorComponentsMinimumSize(true)

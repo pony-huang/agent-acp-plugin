@@ -16,6 +16,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.format.DateTimeParseException
 import java.util.UUID
 
 /**
@@ -79,6 +82,18 @@ class AcpSessionService(private val project: Project) : Disposable {
     private val _lastStopReason = MutableStateFlow<StopReason?>(null)
     val lastStopReason: StateFlow<StopReason?> = _lastStopReason.asStateFlow()
 
+    private val _sessionTitle = MutableStateFlow<String?>(null)
+    val sessionTitle: StateFlow<String?> = _sessionTitle.asStateFlow()
+
+    private val _sessionUpdatedAt = MutableStateFlow<Long?>(null)
+    val sessionUpdatedAt: StateFlow<Long?> = _sessionUpdatedAt.asStateFlow()
+
+    private val _latestPlanEntries = MutableStateFlow<List<SessionPlanItem>>(emptyList())
+    val latestPlanEntries: StateFlow<List<SessionPlanItem>> = _latestPlanEntries.asStateFlow()
+
+    private val _latestUsage = MutableStateFlow<SessionUsageSummary?>(null)
+    val latestUsage: StateFlow<SessionUsageSummary?> = _latestUsage.asStateFlow()
+
     // ACP Client
     private var client: AcpAgentClient? = null
     private var coroutineScope: CoroutineScope? = null
@@ -108,6 +123,19 @@ class AcpSessionService(private val project: Project) : Disposable {
         val contentSummary: String? = null
     )
 
+    data class SessionPlanItem(
+        val content: String,
+        val priority: String,
+        val status: String
+    )
+
+    data class SessionUsageSummary(
+        val usedTokens: Long,
+        val totalTokens: Long,
+        val costAmount: Double? = null,
+        val costCurrency: String? = null
+    )
+
     private var pendingPromptEchoRemainder: String? = null
 
     /**
@@ -118,6 +146,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     suspend fun createSession(agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
         _isLoading.value = true
         try {
+            resetDerivedSessionState()
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             coroutineScope = scope
 
@@ -156,6 +185,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     suspend fun resumeSession(sessionId: String, agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
         _isLoading.value = true
         try {
+            resetDerivedSessionState()
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             coroutineScope = scope
 
@@ -195,6 +225,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         val session = _currentSession ?: return
 
         addMessage(ROLE_USER, text)
+        updateDerivedSessionTitleFromPrompt(text)
         pendingPromptEchoRemainder = text
 
         // Collect streaming updates via Flow
@@ -397,11 +428,17 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Handle plan update - logs the plan entries.
      */
     private fun handlePlanUpdate(update: SessionUpdate.PlanUpdate) {
+        _latestPlanEntries.value = update.entries.map { entry ->
+            SessionPlanItem(
+                content = entry.content,
+                priority = entry.priority.toUiValue(),
+                status = entry.status.toUiValue()
+            )
+        }
         println("[AcpSessionService] Plan update: ${update.entries.size} entries")
         for (entry in update.entries) {
             println("[AcpSessionService]   - [${entry.status.name}] ${entry.content}")
         }
-        // Could display plan in UI if needed
     }
 
     /**
@@ -427,6 +464,12 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Handle usage update - logs token usage.
      */
     private fun handleUsageUpdate(update: SessionUpdate.UsageUpdate) {
+        _latestUsage.value = SessionUsageSummary(
+            usedTokens = update.used,
+            totalTokens = update.size,
+            costAmount = update.cost?.amount,
+            costCurrency = update.cost?.currency
+        )
         println("[AcpSessionService] Usage: ${update.used}/${update.size} tokens" +
                 (update.cost?.let { " (cost: ${it.amount} ${it.currency})" } ?: ""))
     }
@@ -435,6 +478,8 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Handle session info update - updates title/updatedAt.
      */
     private fun handleSessionInfoUpdate(update: SessionUpdate.SessionInfoUpdate) {
+        update.title?.let { _sessionTitle.value = it }
+        update.updatedAt?.let { _sessionUpdatedAt.value = parseUpdatedAt(it) }
         println("[AcpSessionService] Session info update: title=${update.title}, updatedAt=${update.updatedAt}")
     }
 
@@ -450,6 +495,7 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     private fun handlePromptResponse(response: PromptResponse) {
         _lastStopReason.value = response.stopReason
+        _sessionUpdatedAt.value = System.currentTimeMillis()
         println("[AcpSessionService] Prompt completed. Stop reason: ${response.stopReason}")
     }
 
@@ -528,6 +574,34 @@ class AcpSessionService(private val project: Project) : Disposable {
         }
     }
 
+    private fun updateDerivedSessionTitleFromPrompt(text: String) {
+        if (_sessionTitle.value.isNullOrBlank()) {
+            _sessionTitle.value = text.take(50).ifBlank { null }
+        }
+        _sessionUpdatedAt.value = System.currentTimeMillis()
+    }
+
+    private fun parseUpdatedAt(value: String): Long? {
+        return try {
+            Instant.parse(value).toEpochMilli()
+        } catch (_: DateTimeParseException) {
+            try {
+                OffsetDateTime.parse(value).toInstant().toEpochMilli()
+            } catch (_: DateTimeParseException) {
+                null
+            }
+        }
+    }
+
+    private fun resetDerivedSessionState() {
+        _sessionTitle.value = null
+        _sessionUpdatedAt.value = null
+        _latestPlanEntries.value = emptyList()
+        _latestUsage.value = null
+        _lastStopReason.value = null
+        pendingPromptEchoRemainder = null
+    }
+
     /**
      * Disconnect from the current session.
      */
@@ -545,8 +619,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         _currentModeId.value = ""
         _availableModels.value = emptyList()
         _currentModelId.value = ""
-        _lastStopReason.value = null
-        pendingPromptEchoRemainder = null
+        resetDerivedSessionState()
     }
 
     /**
@@ -567,6 +640,11 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     fun clearMessages() {
         _messages.value = emptyList()
+        _sessionTitle.value = null
+        _sessionUpdatedAt.value = null
+        _latestPlanEntries.value = emptyList()
+        _latestUsage.value = null
+        _lastStopReason.value = null
         pendingPromptEchoRemainder = null
     }
 
@@ -600,5 +678,21 @@ class AcpSessionService(private val project: Project) : Disposable {
 
     private fun ToolCallLocation.toDisplayString(): String {
         return line?.let { "$path:$it" } ?: path
+    }
+
+    private fun PlanEntryPriority.toUiValue(): String {
+        return when (this) {
+            PlanEntryPriority.HIGH -> "high"
+            PlanEntryPriority.MEDIUM -> "medium"
+            PlanEntryPriority.LOW -> "low"
+        }
+    }
+
+    private fun PlanEntryStatus.toUiValue(): String {
+        return when (this) {
+            PlanEntryStatus.PENDING -> "pending"
+            PlanEntryStatus.IN_PROGRESS -> "in_progress"
+            PlanEntryStatus.COMPLETED -> "completed"
+        }
     }
 }

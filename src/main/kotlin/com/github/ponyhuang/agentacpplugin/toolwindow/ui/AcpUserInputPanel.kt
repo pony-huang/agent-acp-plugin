@@ -1,5 +1,8 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
+import com.agentclientprotocol.annotations.UnstableApi
+import com.agentclientprotocol.model.ModelInfo
+import com.agentclientprotocol.model.SessionMode
 import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
 import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
 import com.github.ponyhuang.agentacpplugin.toolwindow.ToolWindowComposerState
@@ -38,11 +41,15 @@ class AcpUserInputPanel(
     var onPlanChanged: (PlanComboBoxAction.PlanItem) -> Unit = {}
 ) : BorderLayoutPanel() {
 
+    private var isSessionConnected = false
+    private var isBusy = false
+
     private val userInputTextArea = JBTextArea().apply {
         isOpaque = true
         lineWrap = true
         wrapStyleWord = true
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
+        emptyText.text = "Type your message..."
         addKeyListener(object : java.awt.event.KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
                 if (e.keyCode == KeyEvent.VK_ENTER && !e.isShiftDown) {
@@ -135,10 +142,46 @@ class AcpUserInputPanel(
     }
 
     fun setBusy(state: ToolWindowComposerState) {
-        val busy = state != ToolWindowComposerState.IDLE
-        sendButton.isEnabled = !busy
-        agentComboBox.isEnabled = !busy
+        isBusy = state != ToolWindowComposerState.IDLE
+        sendButton.isEnabled = !isBusy
+        agentComboBox.isEnabled = !isBusy
+        planComboBox.isEnabled = isSessionConnected && !isBusy
+        modelComboBox.isEnabled = isSessionConnected && !isBusy
         userInputTextArea.isEnabled = true
+    }
+
+    fun setSessionConnected(connected: Boolean) {
+        isSessionConnected = connected
+        planComboBox.isEnabled = connected && !isBusy
+        modelComboBox.isEnabled = connected && !isBusy
+    }
+
+    fun updateModes(modes: List<SessionMode>, currentModeId: String?) {
+        planComboBoxAction.updateModes(modes)
+        planComboBoxAction.setSelectedById(currentModeId)
+        planComboBox.isEnabled = isSessionConnected && !isBusy && modes.isNotEmpty()
+    }
+
+    @OptIn(UnstableApi::class)
+    fun updateModels(models: List<ModelInfo>, currentModelId: String?) {
+        modelComboBoxAction.updateModels(models)
+        modelComboBoxAction.setSelectedById(currentModelId)
+        modelComboBox.isEnabled = isSessionConnected && !isBusy && models.isNotEmpty()
+    }
+
+    fun clearSessionSelectors() {
+        planComboBoxAction.clearModes()
+        modelComboBoxAction.clearModels()
+        planComboBox.isEnabled = false
+        modelComboBox.isEnabled = false
+    }
+
+    fun updateCommandHint(hasCommands: Boolean) {
+        userInputTextArea.emptyText.text = if (hasCommands) {
+            "Type your message... (/ for commands)"
+        } else {
+            "Type your message..."
+        }
     }
 
     fun clearInput() {
