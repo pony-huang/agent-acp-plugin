@@ -11,9 +11,12 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
 
 /**
  * Unified service for managing ACP session state.
@@ -27,6 +30,11 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 @Service(Service.Level.PROJECT)
 class AcpSessionService(private val project: Project) : Disposable {
+    companion object {
+        private const val ROLE_USER = "user"
+        private const val ROLE_ASSISTANT = "assistant"
+    }
+
 
     // Connection state
     private val _isConnected = MutableStateFlow(false)
@@ -95,8 +103,12 @@ class AcpSessionService(private val project: Project) : Disposable {
         val toolCallId: String,
         val title: String,
         val status: String = "pending",
-        val kind: String? = null
+        val kind: String? = null,
+        val locations: List<String> = emptyList(),
+        val contentSummary: String? = null
     )
+
+    private var pendingPromptEchoRemainder: String? = null
 
     /**
      * Create a new ACP session with the specified agent.
@@ -106,7 +118,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     suspend fun createSession(agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
         _isLoading.value = true
         try {
-            val scope = CoroutineScope(Dispatchers.Default)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             coroutineScope = scope
 
             val configService = project.service<AcpAgentsConfigService>()
@@ -144,7 +156,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     suspend fun resumeSession(sessionId: String, agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
         _isLoading.value = true
         try {
-            val scope = CoroutineScope(Dispatchers.Default)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             coroutineScope = scope
 
             val configService = project.service<AcpAgentsConfigService>()
@@ -182,8 +194,8 @@ class AcpSessionService(private val project: Project) : Disposable {
     suspend fun sendPrompt(text: String) {
         val session = _currentSession ?: return
 
-        // Add user message immediately
-        addMessage("user", text)
+        addMessage(ROLE_USER, text)
+        pendingPromptEchoRemainder = text
 
         // Collect streaming updates via Flow
         val content = listOf(ContentBlock.Text(text))
@@ -253,20 +265,32 @@ class AcpSessionService(private val project: Project) : Disposable {
         }
     }
 
+    internal fun applySessionUpdate(update: SessionUpdate) {
+        handleSessionUpdate(update)
+    }
+
+    internal fun applyPromptResponse(response: PromptResponse) {
+        handlePromptResponse(response)
+    }
+
     /**
      * Handle user message chunk - appends to the last user message.
      */
     private fun handleUserMessageChunk(update: SessionUpdate.UserMessageChunk) {
-        val content = extractTextContent(update.content) ?: return
+        val content = renderMessageContent(update.content)
+        if (consumePendingPromptEcho(content)) {
+            return
+        }
+
         val messages = _messages.value
-        if (messages.isNotEmpty() && messages.last().role == "user") {
+        if (messages.isNotEmpty() && messages.last().role == ROLE_USER) {
             // Append to last user message
             val lastMsg = messages.last()
             val updatedMsg = lastMsg.copy(content = lastMsg.content + content)
             _messages.value = messages.dropLast(1) + updatedMsg
         } else {
             // Create new user message (shouldn't happen normally)
-            addMessage("user", content)
+            addMessage(ROLE_USER, content)
         }
     }
 
@@ -274,16 +298,16 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Handle agent message chunk - appends to the last assistant message.
      */
     private fun handleAgentMessageChunk(update: SessionUpdate.AgentMessageChunk) {
-        val content = extractTextContent(update.content) ?: return
+        val content = renderMessageContent(update.content)
         val messages = _messages.value
-        if (messages.isNotEmpty() && messages.last().role == "assistant") {
+        if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
             // Append to last assistant message
             val lastMsg = messages.last()
             val updatedMsg = lastMsg.copy(content = lastMsg.content + content)
             _messages.value = messages.dropLast(1) + updatedMsg
         } else {
             // Create new assistant message
-            addMessage("assistant", content)
+            addMessage(ROLE_ASSISTANT, content)
         }
     }
 
@@ -291,18 +315,18 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Handle agent thought chunk - appends to the last assistant message's thought field.
      */
     private fun handleAgentThoughtChunk(update: SessionUpdate.AgentThoughtChunk) {
-        val thought = extractTextContent(update.content) ?: return
+        val thought = renderMessageContent(update.content)
         val messages = _messages.value
-        if (messages.isNotEmpty() && messages.last().role == "assistant") {
+        if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
             // Append to last assistant message's thought
             val lastMsg = messages.last()
             val updatedMsg = lastMsg.copy(thought = (lastMsg.thought ?: "") + thought)
             _messages.value = messages.dropLast(1) + updatedMsg
         } else {
             // Create new assistant message with thought
-            addMessage("assistant", "").let {
+            addMessage(ROLE_ASSISTANT, "").let {
                 val messages = _messages.value
-                if (messages.isNotEmpty() && messages.last().role == "assistant") {
+                if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
                     val lastMsg = messages.last()
                     val updatedMsg = lastMsg.copy(thought = thought)
                     _messages.value = messages.dropLast(1) + updatedMsg
@@ -318,28 +342,25 @@ class AcpSessionService(private val project: Project) : Disposable {
     private fun handleToolCall(update: SessionUpdate.ToolCall) {
         val toolCallId = update.toolCallId.value
         val title = update.title
-        val kind = update.kind?.name ?: "OTHER"
+        val kind = update.kind?.toUiValue() ?: ToolKind.OTHER.toUiValue()
 
         // Track the tool call
         val currentTools = _activeToolCalls.value.toMutableMap()
         currentTools[toolCallId] = toolCallId
         _activeToolCalls.value = currentTools
 
-        // Create a tool call message
         val toolCallInfo = ToolCallInfo(
             toolCallId = toolCallId,
             title = title,
-            status = "pending",
-            kind = kind
+            status = update.status?.toUiValue() ?: ToolCallStatus.PENDING.toUiValue(),
+            kind = kind,
+            locations = update.locations.map { it.toDisplayString() },
+            contentSummary = summarizeToolCallContent(update.content)
         )
-
-        val message = ChatMessage(
-            id = java.util.UUID.randomUUID().toString(),
-            role = "assistant",
-            content = "[Tool Call: $title]",
-            toolCalls = listOf(toolCallInfo)
-        )
-        _messages.value = _messages.value + message
+        val assistantMessage = ensureAssistantMessage()
+        updateMessage(assistantMessage.id) { message ->
+            message.copy(toolCalls = message.toolCalls + toolCallInfo)
+        }
     }
 
     /**
@@ -348,7 +369,8 @@ class AcpSessionService(private val project: Project) : Disposable {
     @OptIn(UnstableApi::class)
     private fun handleToolCallUpdate(update: SessionUpdate.ToolCallUpdate) {
         val toolCallId = update.toolCallId.value
-        val newStatus = update.status?.name ?: return
+        val updatedSummary = summarizeToolCallContent(update.content)
+        val updatedLocations = update.locations?.map { it.toDisplayString() }
 
         // Update the tool call in messages
         val messages = _messages.value
@@ -356,17 +378,16 @@ class AcpSessionService(private val project: Project) : Disposable {
             if (msg.toolCalls.any { it.toolCallId == toolCallId }) {
                 val updatedToolCalls = msg.toolCalls.map { tc ->
                     if (tc.toolCallId == toolCallId) {
-                        tc.copy(status = newStatus)
+                        tc.copy(
+                            title = update.title ?: tc.title,
+                            kind = update.kind?.toUiValue() ?: tc.kind,
+                            status = update.status?.toUiValue() ?: tc.status,
+                            locations = updatedLocations ?: tc.locations,
+                            contentSummary = updatedSummary ?: tc.contentSummary
+                        )
                     } else tc
                 }
-                // Also update content based on status
-                val statusText = when (newStatus) {
-                    "in_progress" -> "🔄 ${msg.content}"
-                    "completed" -> "✅ ${msg.content}"
-                    "failed" -> "❌ ${msg.content}"
-                    else -> msg.content
-                }
-                msg.copy(toolCalls = updatedToolCalls, content = statusText)
+                msg.copy(toolCalls = updatedToolCalls)
             } else msg
         }
         _messages.value = updatedMessages
@@ -436,12 +457,74 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Extract text content from ContentBlock.
      */
     private fun extractTextContent(content: ContentBlock): String? {
+        return (content as? ContentBlock.Text)?.text
+    }
+
+    private fun renderMessageContent(content: ContentBlock): String {
+        return extractTextContent(content) ?: summarizeContentBlock(content)
+    }
+
+    private fun summarizeContentBlock(content: ContentBlock): String {
         return when (content) {
             is ContentBlock.Text -> content.text
-            is ContentBlock.Image -> null // Ignore images for now
-            is ContentBlock.Audio -> null // Ignore audio for now
-            is ContentBlock.ResourceLink -> null // Ignore resource links for now
-            is ContentBlock.Resource -> null // Ignore embedded resources for now
+            is ContentBlock.Image -> "[Image: ${content.mimeType}]"
+            is ContentBlock.Audio -> "[Audio: ${content.mimeType}]"
+            is ContentBlock.ResourceLink -> "[Resource: ${content.title ?: content.name}]"
+            is ContentBlock.Resource -> when (val resource = content.resource) {
+                is EmbeddedResourceResource.TextResourceContents -> "[Embedded Resource: ${resource.uri}]"
+                is EmbeddedResourceResource.BlobResourceContents -> "[Embedded Binary Resource: ${resource.uri}]"
+            }
+        }
+    }
+
+    private fun summarizeToolCallContent(content: List<ToolCallContent>?): String? {
+        val items = content.orEmpty()
+        if (items.isEmpty()) {
+            return null
+        }
+
+        return items.joinToString("\n") { item ->
+            when (item) {
+                is ToolCallContent.Content -> summarizeContentBlock(item.content)
+                is ToolCallContent.Diff -> buildString {
+                    append("Diff: ")
+                    append(item.path)
+                    item.oldText?.let { append(" (${it.length} -> ${item.newText.length} chars)") }
+                }
+                is ToolCallContent.Terminal -> "Terminal: ${item.terminalId}"
+            }
+        }
+    }
+
+    private fun consumePendingPromptEcho(content: String): Boolean {
+        val remainder = pendingPromptEchoRemainder ?: return false
+        return if (remainder.startsWith(content)) {
+            pendingPromptEchoRemainder = remainder.removePrefix(content).ifEmpty { null }
+            true
+        } else {
+            pendingPromptEchoRemainder = null
+            false
+        }
+    }
+
+    private fun ensureAssistantMessage(): ChatMessage {
+        val lastMessage = _messages.value.lastOrNull()
+        if (lastMessage?.role == ROLE_ASSISTANT) {
+            return lastMessage
+        }
+
+        val newMessage = ChatMessage(
+            id = UUID.randomUUID().toString(),
+            role = ROLE_ASSISTANT,
+            content = ""
+        )
+        _messages.value = _messages.value + newMessage
+        return newMessage
+    }
+
+    private fun updateMessage(messageId: String, transform: (ChatMessage) -> ChatMessage) {
+        _messages.value = _messages.value.map { message ->
+            if (message.id == messageId) transform(message) else message
         }
     }
 
@@ -450,11 +533,20 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     fun disconnect() {
         client = null
+        coroutineScope?.cancel()
+        coroutineScope = null
+        _currentSession = null
         _isConnected.value = false
         _currentAgent.value = null
         _messages.value = emptyList()
         _activeToolCalls.value = emptyMap()
         _availableCommands.value = emptyList()
+        _availableModes.value = emptyList()
+        _currentModeId.value = ""
+        _availableModels.value = emptyList()
+        _currentModelId.value = ""
+        _lastStopReason.value = null
+        pendingPromptEchoRemainder = null
     }
 
     /**
@@ -462,7 +554,7 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     fun addMessage(role: String, content: String, thought: String? = null) {
         val newMessage = ChatMessage(
-            id = java.util.UUID.randomUUID().toString(),
+            id = UUID.randomUUID().toString(),
             role = role,
             content = content,
             thought = thought
@@ -475,9 +567,38 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     fun clearMessages() {
         _messages.value = emptyList()
+        pendingPromptEchoRemainder = null
     }
 
     override fun dispose() {
         disconnect()
+    }
+
+    private fun ToolKind.toUiValue(): String {
+        return when (this) {
+            ToolKind.READ -> "read"
+            ToolKind.EDIT -> "edit"
+            ToolKind.DELETE -> "delete"
+            ToolKind.MOVE -> "move"
+            ToolKind.SEARCH -> "search"
+            ToolKind.EXECUTE -> "execute"
+            ToolKind.THINK -> "think"
+            ToolKind.FETCH -> "fetch"
+            ToolKind.SWITCH_MODE -> "switch_mode"
+            ToolKind.OTHER -> "other"
+        }
+    }
+
+    private fun ToolCallStatus.toUiValue(): String {
+        return when (this) {
+            ToolCallStatus.PENDING -> "pending"
+            ToolCallStatus.IN_PROGRESS -> "in_progress"
+            ToolCallStatus.COMPLETED -> "completed"
+            ToolCallStatus.FAILED -> "failed"
+        }
+    }
+
+    private fun ToolCallLocation.toDisplayString(): String {
+        return line?.let { "$path:$it" } ?: path
     }
 }

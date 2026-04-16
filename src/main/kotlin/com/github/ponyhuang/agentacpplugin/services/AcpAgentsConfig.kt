@@ -202,49 +202,49 @@ class AcpAgentsConfigService(private val project: Project) {
         {
           "agents": {
             "GitHub Copilot": {
-              "command": "npx",
+              "command": "npx.cmd",
               "args": ["@github/copilot-language-server@latest", "--acp"],
               "env": {}
             },
             "Claude Code": {
-              "command": "npx",
+              "command": "npx.cmd",
               "args": ["@zed-industries/claude-code-acp@latest"],
               "env": {
                 "ANTHROPIC_API_KEY": "sk-ant-..."
               }
             },
             "Gemini CLI": {
-              "command": "npx",
+              "command": "npx.cmd",
               "args": ["@google/gemini-cli@latest", "--experimental-acp"],
               "env": {}
             },
             "Qwen Code": {
-              "command": "npx",
+              "command": "npx.cmd",
               "args": ["@qwen-code/qwen-code@latest", "--acp", "--experimental-skills"],
               "env": {}
             },
             "Auggie CLI": {
-              "command": "npx",
+              "command": "npx.cmd",
               "args": ["@augmentcode/auggie@latest", "--acp"],
               "env": {"AUGMENT_DISABLE_AUTO_UPDATE": "1"}
             },
             "Qoder CLI": {
-              "command": "npx",
+              "command": "npx.cmd",
               "args": ["@qoder-ai/qodercli@latest", "--acp"],
               "env": {}
             },
             "Codex CLI": {
-              "command": "npx",
+              "command": "npx.cmd",
               "args": ["@zed-industries/codex-acp@latest"],
               "env": {}
             },
             "OpenCode": {
-              "command": "npx",
+              "command": "npx.cmd",
               "args": ["opencode-ai@latest", "acp"],
               "env": {}
             },
             "OpenClaw": {
-              "command": "npx",
+              "command": "npx.cmd",
               "args": ["openclaw", "acp"],
               "env": {}
             }
