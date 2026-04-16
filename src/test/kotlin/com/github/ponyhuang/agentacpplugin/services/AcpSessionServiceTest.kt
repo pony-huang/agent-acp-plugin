@@ -6,7 +6,11 @@ import com.agentclientprotocol.model.EmbeddedResourceResource
 import com.agentclientprotocol.model.PlanEntry
 import com.agentclientprotocol.model.PlanEntryPriority
 import com.agentclientprotocol.model.PlanEntryStatus
+import com.agentclientprotocol.model.PermissionOption
+import com.agentclientprotocol.model.PermissionOptionId
+import com.agentclientprotocol.model.PermissionOptionKind
 import com.agentclientprotocol.model.PromptResponse
+import com.agentclientprotocol.model.RequestPermissionOutcome
 import com.agentclientprotocol.model.SessionUpdate
 import com.agentclientprotocol.model.StopReason
 import com.agentclientprotocol.model.ToolCallContent
@@ -16,14 +20,20 @@ import com.agentclientprotocol.model.ToolCallStatus
 import com.agentclientprotocol.model.ToolKind
 import com.intellij.openapi.components.service
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 class AcpSessionServiceTest : BasePlatformTestCase() {
 
     private lateinit var service: AcpSessionService
+    private lateinit var permissionRequestService: AcpPermissionRequestService
 
     override fun setUp() {
         super.setUp()
         service = project.service()
+        permissionRequestService = project.service()
         service.clearMessages()
     }
 
@@ -164,9 +174,123 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertNotNull(service.sessionUpdatedAt.value)
     }
 
+    fun testPermissionRequestIsExposedAndCanBeSubmitted() = runBlocking {
+        val deferredResponse = async(Dispatchers.Default) {
+            permissionRequestService.requestPermissions(
+                toolCall = SessionUpdate.ToolCallUpdate(
+                    toolCallId = ToolCallId("tool-approve"),
+                    title = "Run command",
+                    status = ToolCallStatus.PENDING
+                ),
+                permissions = listOf(
+                    PermissionOption(
+                        optionId = PermissionOptionId("allow-once"),
+                        name = "Allow once",
+                        kind = PermissionOptionKind.ALLOW_ONCE
+                    ),
+                    PermissionOption(
+                        optionId = PermissionOptionId("reject-once"),
+                        name = "Reject once",
+                        kind = PermissionOptionKind.REJECT_ONCE
+                    )
+                ),
+                meta = null
+            )
+        }
+
+        waitForCondition {
+            service.pendingPermissionRequests.value.size == 1
+        }
+
+        val request = service.pendingPermissionRequests.value.single()
+        assertEquals("Run command", request.title)
+        assertEquals("allow-once", request.selectedOptionId)
+        assertFalse(request.submitted)
+        assertEquals(2, request.options.size)
+        assertEquals("Allow once", request.options.first().label)
+
+        assertTrue(service.submitPermissionRequest(request.requestId, "reject-once"))
+
+        waitForCondition {
+            service.pendingPermissionRequests.value.single().submitted
+        }
+
+        val updatedRequest = service.pendingPermissionRequests.value.single()
+        assertEquals("reject-once", updatedRequest.selectedOptionId)
+        assertTrue(updatedRequest.submitted)
+
+        val response = deferredResponse.await()
+        val outcome = response.outcome as RequestPermissionOutcome.Selected
+        assertEquals("reject-once", outcome.optionId.value)
+    }
+
+    fun testClearMessagesResetsPendingPermissionRequests() = runBlocking {
+        val deferredResponse = async(Dispatchers.Default) {
+            permissionRequestService.requestPermissions(
+                toolCall = SessionUpdate.ToolCallUpdate(
+                    toolCallId = ToolCallId("tool-clear"),
+                    title = "Open file",
+                    status = ToolCallStatus.PENDING
+                ),
+                permissions = listOf(
+                    PermissionOption(
+                        optionId = PermissionOptionId("allow"),
+                        name = "Allow",
+                        kind = PermissionOptionKind.ALLOW_ONCE
+                    )
+                ),
+                meta = null
+            )
+        }
+
+        waitForCondition {
+            service.pendingPermissionRequests.value.isNotEmpty()
+        }
+
+        service.clearMessages()
+
+        assertTrue(service.pendingPermissionRequests.value.isEmpty())
+
+        val requestId = waitForNonNull { permissionRequestServiceRequestId() }
+        assertTrue(permissionRequestService.submitSelection(requestId, PermissionOptionId("allow")))
+        deferredResponse.await()
+    }
+
     private fun setPendingPromptEcho(value: String) {
         val field = AcpSessionService::class.java.getDeclaredField("pendingPromptEchoRemainder")
         field.isAccessible = true
         field.set(service, value)
+    }
+
+    private suspend fun waitForCondition(predicate: () -> Boolean) {
+        var satisfied = false
+        withContext(Dispatchers.Default) {
+            repeat(100) {
+                if (predicate()) {
+                    satisfied = true
+                    return@withContext
+                }
+                Thread.sleep(10)
+            }
+        }
+        if (!satisfied) {
+            fail("Timed out waiting for condition")
+        }
+    }
+
+    private suspend fun waitForNonNull(valueProvider: () -> String?): String {
+        var result: String? = null
+        waitForCondition {
+            result = valueProvider()
+            result != null
+        }
+        return result!!
+    }
+
+    private fun permissionRequestServiceRequestId(): String? {
+        val field = AcpPermissionRequestService::class.java.getDeclaredField("pendingRequests")
+        field.isAccessible = true
+        val requests = field.get(permissionRequestService) as java.util.concurrent.ConcurrentHashMap<*, *>
+        return requests.keys.firstOrNull() as? String
     }
 }

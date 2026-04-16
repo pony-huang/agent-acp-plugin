@@ -13,9 +13,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.format.DateTimeParseException
@@ -37,6 +40,9 @@ class AcpSessionService(private val project: Project) : Disposable {
         private const val ROLE_USER = "user"
         private const val ROLE_ASSISTANT = "assistant"
     }
+
+    private val permissionRequestService = project.service<AcpPermissionRequestService>()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
 
     // Connection state
@@ -94,6 +100,9 @@ class AcpSessionService(private val project: Project) : Disposable {
     private val _latestUsage = MutableStateFlow<SessionUsageSummary?>(null)
     val latestUsage: StateFlow<SessionUsageSummary?> = _latestUsage.asStateFlow()
 
+    private val _pendingPermissionRequests = MutableStateFlow<List<PermissionRequestInfo>>(emptyList())
+    val pendingPermissionRequests: StateFlow<List<PermissionRequestInfo>> = _pendingPermissionRequests.asStateFlow()
+
     // ACP Client
     private var client: AcpAgentClient? = null
     private var coroutineScope: CoroutineScope? = null
@@ -136,7 +145,45 @@ class AcpSessionService(private val project: Project) : Disposable {
         val costCurrency: String? = null
     )
 
+    data class PermissionRequestInfo(
+        val requestId: String,
+        val toolCallId: String,
+        val title: String,
+        val options: List<PermissionOptionInfo>,
+        val selectedOptionId: String?,
+        val submitted: Boolean
+    )
+
+    data class PermissionOptionInfo(
+        val optionId: String,
+        val label: String,
+        val kind: String?
+    )
+
     private var pendingPromptEchoRemainder: String? = null
+
+    init {
+        serviceScope.launch {
+            permissionRequestService.requests.collect { request ->
+                val defaultSelection = request.permissions.firstOrNull()?.optionId?.value
+                val requestInfo = PermissionRequestInfo(
+                    requestId = request.requestId,
+                    toolCallId = request.toolCall.toolCallId.value,
+                    title = request.toolCall.title ?: "Permission request",
+                    options = request.permissions.map { permission ->
+                        PermissionOptionInfo(
+                            optionId = permission.optionId.value,
+                            label = permission.name,
+                            kind = permission.kind.name.lowercase()
+                        )
+                    },
+                    selectedOptionId = defaultSelection,
+                    submitted = false
+                )
+                _pendingPermissionRequests.value = _pendingPermissionRequests.value + requestInfo
+            }
+        }
+    }
 
     /**
      * Create a new ACP session with the specified agent.
@@ -154,7 +201,20 @@ class AcpSessionService(private val project: Project) : Disposable {
             val sessionUpdateHandler: suspend (SessionUpdate) -> Unit = { update ->
                 handleSessionUpdate(update)
             }
-            client = configService.createClientBridge(agentDefinition.displayName, scope, sessionUpdateHandler)
+            val permissionRequestHandler: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse =
+                { toolCall, permissions, meta ->
+                    if (permissionRequestService.hasActiveSubscribers()) {
+                        permissionRequestService.requestPermissions(toolCall, permissions, meta)
+                    } else {
+                        autoApprovePermissions(permissions, meta)
+                    }
+                }
+            client = configService.createClientBridge(
+                agentDefinition.displayName,
+                scope,
+                sessionUpdateHandler,
+                permissionRequestHandler
+            )
 
             if (client != null) {
                 val info = client!!.connect()
@@ -193,7 +253,20 @@ class AcpSessionService(private val project: Project) : Disposable {
             val sessionUpdateHandler: suspend (SessionUpdate) -> Unit = { update ->
                 handleSessionUpdate(update)
             }
-            client = configService.createClientBridge(agentDefinition.displayName, scope, sessionUpdateHandler)
+            val permissionRequestHandler: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse =
+                { toolCall, permissions, meta ->
+                    if (permissionRequestService.hasActiveSubscribers()) {
+                        permissionRequestService.requestPermissions(toolCall, permissions, meta)
+                    } else {
+                        autoApprovePermissions(permissions, meta)
+                    }
+                }
+            client = configService.createClientBridge(
+                agentDefinition.displayName,
+                scope,
+                sessionUpdateHandler,
+                permissionRequestHandler
+            )
 
             if (client != null) {
                 val info = client!!.connect()
@@ -599,6 +672,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         _latestPlanEntries.value = emptyList()
         _latestUsage.value = null
         _lastStopReason.value = null
+        _pendingPermissionRequests.value = emptyList()
         pendingPromptEchoRemainder = null
     }
 
@@ -645,11 +719,53 @@ class AcpSessionService(private val project: Project) : Disposable {
         _latestPlanEntries.value = emptyList()
         _latestUsage.value = null
         _lastStopReason.value = null
+        _pendingPermissionRequests.value = emptyList()
         pendingPromptEchoRemainder = null
     }
 
+    fun submitPermissionRequest(requestId: String, optionId: String): Boolean {
+        val submitted = permissionRequestService.submitSelection(requestId, PermissionOptionId(optionId))
+        if (!submitted) {
+            return false
+        }
+
+        _pendingPermissionRequests.value = _pendingPermissionRequests.value.map { request ->
+            if (request.requestId == requestId) {
+                request.copy(
+                    selectedOptionId = optionId,
+                    submitted = true
+                )
+            } else {
+                request
+            }
+        }
+        return true
+    }
+
     override fun dispose() {
+        serviceScope.cancel()
         disconnect()
+    }
+
+    private fun autoApprovePermissions(
+        permissions: List<PermissionOption>,
+        meta: JsonElement?,
+    ): RequestPermissionResponse {
+        val selectedOption = permissions.firstOrNull {
+            it.kind == PermissionOptionKind.ALLOW_ALWAYS || it.kind == PermissionOptionKind.ALLOW_ONCE
+        } ?: permissions.firstOrNull()
+
+        return if (selectedOption != null) {
+            RequestPermissionResponse(
+                RequestPermissionOutcome.Selected(selectedOption.optionId),
+                meta
+            )
+        } else {
+            RequestPermissionResponse(
+                RequestPermissionOutcome.Cancelled,
+                meta
+            )
+        }
     }
 
     private fun ToolKind.toUiValue(): String {

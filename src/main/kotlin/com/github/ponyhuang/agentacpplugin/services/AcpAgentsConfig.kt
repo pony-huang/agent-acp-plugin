@@ -171,7 +171,12 @@ class AcpAgentsConfigService(private val project: Project) {
     fun createClientBridge(
         agentName: String,
         coroutineScope: CoroutineScope,
-        sessionUpdateSink: suspend (com.agentclientprotocol.model.SessionUpdate) -> Unit
+        sessionUpdateSink: suspend (com.agentclientprotocol.model.SessionUpdate) -> Unit,
+        permissionRequestSink: suspend (
+            com.agentclientprotocol.model.SessionUpdate.ToolCallUpdate,
+            List<com.agentclientprotocol.model.PermissionOption>,
+            JsonElement?
+        ) -> com.agentclientprotocol.model.RequestPermissionResponse,
     ): AcpAgentClient? {
         val config = getAgentConfig(agentName) ?: return null
         val cmd = listOf(config.command) + config.args
@@ -181,7 +186,8 @@ class AcpAgentsConfigService(private val project: Project) {
             project = project,
             cmd = cmd,
             envs = envs,
-            sessionUpdateSink = sessionUpdateSink
+            sessionUpdateSink = sessionUpdateSink,
+            permissionRequestSink = permissionRequestSink
         )
     }
 

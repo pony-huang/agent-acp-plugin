@@ -3,6 +3,8 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import javax.swing.JButton
+import javax.swing.JRadioButton
 import java.lang.reflect.Constructor
 
 class AcpConversationPanelTest : BasePlatformTestCase() {
@@ -66,6 +68,48 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertEquals(markdownPane.preferredSize.height, markdownPane.maximumSize.height)
     }
 
+    fun testPermissionRequestCardRendersOptionsAndSubmitState() {
+        val request = AcpSessionService.PermissionRequestInfo(
+            requestId = "request-1",
+            toolCallId = "tool-1",
+            title = "Run command",
+            options = listOf(
+                AcpSessionService.PermissionOptionInfo(
+                    optionId = "allow-once",
+                    label = "Allow once",
+                    kind = "allow_once"
+                ),
+                AcpSessionService.PermissionOptionInfo(
+                    optionId = "reject-once",
+                    label = "Reject once",
+                    kind = "reject_once"
+                )
+            ),
+            selectedOptionId = "allow-once",
+            submitted = false
+        )
+
+        val card = instantiatePrivatePanel(
+            "com.github.ponyhuang.agentacpplugin.toolwindow.ui.PermissionRequestCardPanel",
+            arrayOf(
+                AcpSessionService.PermissionRequestInfo::class.java,
+                Function1::class.java
+            ),
+            arrayOf(
+                request,
+                { _: String -> }
+            )
+        )
+
+        val radios = findAllByType(card, JRadioButton::class.java)
+        val buttons = findAllByType(card, JButton::class.java)
+
+        assertEquals(2, radios.size)
+        assertTrue(radios.first().isSelected)
+        assertEquals("Submit", buttons.single().text)
+        assertTrue(buttons.single().isEnabled)
+    }
+
     private fun instantiatePrivatePanel(
         className: String,
         parameterTypes: Array<Class<*>>,
@@ -90,5 +134,21 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             }
         }
         return null
+    }
+
+    private fun <T : java.awt.Component> findAllByType(
+        root: java.awt.Component,
+        type: Class<T>
+    ): List<T> {
+        val results = mutableListOf<T>()
+        if (type.isInstance(root)) {
+            results += type.cast(root)
+        }
+        if (root is java.awt.Container) {
+            root.components.forEach { child ->
+                results += findAllByType(child, type)
+            }
+        }
+        return results
     }
 }

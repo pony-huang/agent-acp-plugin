@@ -32,12 +32,15 @@ import java.awt.FlowLayout
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import javax.swing.ButtonGroup
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JEditorPane
 import javax.swing.JPanel
+import javax.swing.JRadioButton
 
 class AcpConversationPanel(
     project: Project,
@@ -90,7 +93,8 @@ class AcpConversationPanel(
             sessionService.currentModeId,
             sessionService.availableModels,
             sessionService.currentModelId,
-            sessionService.availableCommands
+            sessionService.availableCommands,
+            sessionService.pendingPermissionRequests
         ).forEach { flow ->
             uiScope.launch {
                 flow.collectLatest {
@@ -118,7 +122,8 @@ class AcpConversationPanel(
             currentModelName = sessionService.availableModels.value.find {
                 it.modelId.value == sessionService.currentModelId.value
             }?.name,
-            commandCount = sessionService.availableCommands.value.size
+            commandCount = sessionService.availableCommands.value.size,
+            pendingPermissionRequests = sessionService.pendingPermissionRequests.value
         )
         render(state)
     }
@@ -144,6 +149,18 @@ class AcpConversationPanel(
                                     expandedThoughts.add(message.id)
                                 } else {
                                     expandedThoughts.remove(message.id)
+                                }
+                            }
+                        )
+                    )
+                }
+                state.pendingPermissionRequests.forEach { request ->
+                    messagePanel.add(
+                        PermissionRequestCardPanel(
+                            request = request,
+                            onSubmit = { optionId ->
+                                uiScope.launch {
+                                    sessionService.submitPermissionRequest(request.requestId, optionId)
                                 }
                             }
                         )
@@ -223,7 +240,8 @@ private data class ConversationViewState(
     val agentName: String?,
     val currentModeName: String?,
     val currentModelName: String?,
-    val commandCount: Int
+    val commandCount: Int,
+    val pendingPermissionRequests: List<AcpSessionService.PermissionRequestInfo>
 )
 
 private class SessionStatusPanel(
@@ -535,6 +553,81 @@ private class ToolCallRow(toolCall: AcpSessionService.ToolCallInfo) : JPanel() {
     }
 }
 
+private class PermissionRequestCardPanel(
+    request: AcpSessionService.PermissionRequestInfo,
+    onSubmit: (String) -> Unit
+) : JPanel() {
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+
+    init {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        isOpaque = true
+        background = JBColor(
+            ColorUtil.mix(UIUtil.getPanelBackground(), JBColor(0xFFF1CF, 0x54452A), 0.75),
+            ColorUtil.mix(UIUtil.getPanelBackground(), JBColor(0xFFF1CF, 0x54452A), 0.45)
+        )
+        border = BorderFactory.createCompoundBorder(
+            JBUI.Borders.customLine(JBColor(0xD39E00, 0xF2C46F), 1, 3, 1, 1),
+            JBUI.Borders.empty(10)
+        )
+
+        add(
+            JBLabel("Permission Request").apply {
+                foreground = UIUtil.getContextHelpForeground()
+                border = JBUI.Borders.emptyBottom(6)
+                alignmentX = LEFT_ALIGNMENT
+            }
+        )
+        add(
+            JBLabel(request.title).apply {
+                foreground = UIUtil.getLabelForeground()
+                border = JBUI.Borders.emptyBottom(8)
+                alignmentX = LEFT_ALIGNMENT
+            }
+        )
+
+        if (request.options.isEmpty()) {
+            add(
+                JBLabel("No permission options were provided by the agent.").apply {
+                    foreground = UIUtil.getContextHelpForeground()
+                    alignmentX = LEFT_ALIGNMENT
+                }
+            )
+        } else {
+            val buttonGroup = ButtonGroup()
+            val radios = mutableListOf<JRadioButton>()
+            request.options.forEachIndexed { index, option ->
+                val selected = request.selectedOptionId == option.optionId || (request.selectedOptionId == null && index == 0)
+                val radio = JRadioButton(buildPermissionOptionLabel(option)).apply {
+                    isOpaque = false
+                    isSelected = selected
+                    isEnabled = !request.submitted
+                    foreground = UIUtil.getLabelForeground()
+                    border = JBUI.Borders.emptyBottom(if (index == request.options.lastIndex) 0 else 6)
+                    alignmentX = LEFT_ALIGNMENT
+                }
+                buttonGroup.add(radio)
+                radios += radio
+                add(radio)
+            }
+
+            add(Box.createVerticalStrut(JBUI.scale(8)))
+            add(
+                JButton(if (request.submitted) "Submitted" else "Submit").apply {
+                    isEnabled = !request.submitted
+                    alignmentX = LEFT_ALIGNMENT
+                    addActionListener {
+                        val selectedIndex = radios.indexOfFirst { it.isSelected }
+                        if (selectedIndex >= 0) {
+                            onSubmit(request.options[selectedIndex].optionId)
+                        }
+                    }
+                }
+            )
+        }
+    }
+}
+
 private class MarkdownPane(content: String) : JEditorPane() {
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
@@ -626,6 +719,14 @@ private fun AcpSessionService.SessionUsageSummary.toDisplayText(): String {
 
 private fun formatTimestamp(timestamp: Long): String {
     return timeFormatter.format(Instant.ofEpochMilli(timestamp))
+}
+
+private fun buildPermissionOptionLabel(option: AcpSessionService.PermissionOptionInfo): String {
+    val parts = buildList {
+        add(option.label)
+        option.kind?.takeIf { it.isNotBlank() }?.let { add(it.replace('_', ' ')) }
+    }
+    return parts.joinToString(" • ")
 }
 
 private fun priorityColor(priority: String): Color {

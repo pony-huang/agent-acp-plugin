@@ -74,27 +74,8 @@ private fun applyEnvironmentVariables(processBuilder: ProcessBuilder, envs: List
 
 class DefaultClientSessionOperations(
     val sessionUpdateSink: suspend (SessionUpdate) -> Unit,
-    val permissionRequestSink: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse = { toolCall, permissions, _ ->
-        // Permission request interface - logs the request for now without actual notification
-        println("[PermissionRequest] Agent requested permissions for tool call: ${toolCall.title}")
-        println("[PermissionRequest] Available options:")
-        for ((i, permission) in permissions.withIndex()) {
-            println("[PermissionRequest]   ${i + 1}. ${permission.name} (${permission.kind})")
-        }
-        // Default: select first option if available, otherwise deny
-        if (permissions.isNotEmpty()) {
-            println("[PermissionRequest] Auto-selecting first option: ${permissions[0].name}")
-            RequestPermissionResponse(
-                RequestPermissionOutcome.Selected(permissions[0].optionId),
-                null
-            )
-        } else {
-            println("[PermissionRequest] No options available, denying request")
-            RequestPermissionResponse(
-                RequestPermissionOutcome.Cancelled,
-                null
-            )
-        }
+    val permissionRequestSink: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse = { toolCall, permissions, meta ->
+        autoApprovePermissions(toolCall, permissions, meta)
     },
 ) : ClientSessionOperations {
     private val activeTerminals = ConcurrentHashMap<String, Process>()
@@ -104,7 +85,6 @@ class DefaultClientSessionOperations(
         permissions: List<PermissionOption>,
         _meta: JsonElement?,
     ): RequestPermissionResponse {
-        // Delegate to permission request sink - interface for future UI notification
         return permissionRequestSink(toolCall, permissions, _meta)
     }
 
@@ -188,6 +168,37 @@ class DefaultClientSessionOperations(
         process?.destroy()
         return KillTerminalCommandResponse()
     }
+
+    private companion object {
+        fun autoApprovePermissions(
+            toolCall: SessionUpdate.ToolCallUpdate,
+            permissions: List<PermissionOption>,
+            meta: JsonElement?,
+        ): RequestPermissionResponse {
+            println("[PermissionRequest] Agent requested permissions for tool call: ${toolCall.title}")
+            permissions.forEachIndexed { index, permission ->
+                println("[PermissionRequest]   ${index + 1}. ${permission.name} (${permission.kind})")
+            }
+
+            val selectedOption = permissions.firstOrNull {
+                it.kind == PermissionOptionKind.ALLOW_ALWAYS || it.kind == PermissionOptionKind.ALLOW_ONCE
+            } ?: permissions.firstOrNull()
+
+            return if (selectedOption != null) {
+                println("[PermissionRequest] Auto-selecting option: ${selectedOption.name}")
+                RequestPermissionResponse(
+                    RequestPermissionOutcome.Selected(selectedOption.optionId),
+                    meta
+                )
+            } else {
+                println("[PermissionRequest] No options available, cancelling request")
+                RequestPermissionResponse(
+                    RequestPermissionOutcome.Cancelled,
+                    meta
+                )
+            }
+        }
+    }
 }
 
 
@@ -197,6 +208,7 @@ class AcpAgentClient(
     val cmd: List<String>,
     val envs: List<String>,
     val sessionUpdateSink: suspend (SessionUpdate) -> Unit,
+    val permissionRequestSink: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse,
 ) {
     private var client: Client? = null
     private val sessionCreationParameters: SessionCreationParameters
@@ -216,14 +228,14 @@ class AcpAgentClient(
     suspend fun newSession(): ClientSession? {
         return client?.newSession(
             sessionCreationParameters
-        ) { _, _ -> DefaultClientSessionOperations(sessionUpdateSink) }
+        ) { _, _ -> DefaultClientSessionOperations(sessionUpdateSink, permissionRequestSink) }
     }
 
     suspend fun loadSession(sessionId: SessionId): ClientSession? {
         return client?.loadSession(
             sessionId,
             sessionCreationParameters
-        ) { _, _ -> DefaultClientSessionOperations(sessionUpdateSink) }
+        ) { _, _ -> DefaultClientSessionOperations(sessionUpdateSink, permissionRequestSink) }
     }
 
     private companion object {
