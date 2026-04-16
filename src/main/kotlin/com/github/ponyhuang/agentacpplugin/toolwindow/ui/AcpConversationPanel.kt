@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
+import com.agentclientprotocol.annotations.UnstableApi
 import com.agentclientprotocol.model.StopReason
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.openapi.Disposable
@@ -11,6 +12,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -54,7 +56,7 @@ class AcpConversationPanel(
         }
     )
     private val messagePanel = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        layout = VerticalLayout(8)
         border = JBUI.Borders.empty(8)
         background = UIUtil.getPanelBackground()
     }
@@ -73,6 +75,7 @@ class AcpConversationPanel(
         Disposer.register(parentDisposable, this)
     }
 
+    @OptIn(UnstableApi::class)
     private fun bind() {
         listOf(
             sessionService.messages,
@@ -97,6 +100,7 @@ class AcpConversationPanel(
         }
     }
 
+    @OptIn(UnstableApi::class)
     private fun renderFromState() {
         val state = ConversationViewState(
             messages = sessionService.messages.value,
@@ -130,7 +134,7 @@ class AcpConversationPanel(
             if (state.messages.isEmpty() && !state.isLoading) {
                 messagePanel.add(createEmptyState())
             } else {
-                state.messages.forEachIndexed { index, message ->
+                state.messages.forEach { message ->
                     messagePanel.add(
                         MessageCardPanel(
                             message = message,
@@ -144,16 +148,12 @@ class AcpConversationPanel(
                             }
                         )
                     )
-                    if (index != state.messages.lastIndex || state.isLoading) {
-                        messagePanel.add(Box.createVerticalStrut(JBUI.scale(8)))
-                    }
                 }
                 if (state.isLoading) {
                     messagePanel.add(createLoadingState())
                 }
             }
 
-            messagePanel.add(Box.createVerticalGlue())
             messagePanel.revalidate()
             messagePanel.repaint()
 
@@ -377,20 +377,20 @@ private class BadgeLabel : JBLabel() {
 }
 
 private class MessageCardPanel(
-    private val message: AcpSessionService.ChatMessage,
+    val message: AcpSessionService.ChatMessage,
     thoughtExpanded: Boolean,
     onThoughtToggled: (Boolean) -> Unit
 ) : JPanel() {
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        alignmentX = LEFT_ALIGNMENT
         isOpaque = true
         background = backgroundForRole(message.role)
         border = BorderFactory.createCompoundBorder(
             JBUI.Borders.customLine(JBColor.border(), 1),
             JBUI.Borders.empty(10)
         )
-        maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
 
         add(
             JBLabel(if (message.role == "user") "You" else "Assistant").apply {
@@ -440,16 +440,16 @@ private class ThoughtPanel(
 ) : JPanel() {
     private val contentPanel = JPanel(BorderLayout())
 
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+
     init {
         layout = BorderLayout(0, JBUI.scale(6))
-        alignmentX = LEFT_ALIGNMENT
         isOpaque = true
         background = UIUtil.getPanelBackground()
         border = JBUI.Borders.compound(
             JBUI.Borders.customLine(JBColor.border(), 1),
             JBUI.Borders.empty(6, 8)
         )
-        maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
 
         val toggle = ActionLink(if (expanded) "Hide Thinking" else "Show Thinking").apply {
             addActionListener {
@@ -485,16 +485,16 @@ private class ToolCallListPanel(toolCalls: List<AcpSessionService.ToolCallInfo>)
 }
 
 private class ToolCallRow(toolCall: AcpSessionService.ToolCallInfo) : JPanel() {
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        alignmentX = LEFT_ALIGNMENT
         isOpaque = true
         background = UIUtil.getPanelBackground()
         border = JBUI.Borders.compound(
             JBUI.Borders.customLine(statusColor(toolCall.status), 1, 3, 1, 1),
             JBUI.Borders.empty(6, 8)
         )
-        maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
 
         add(
             JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
@@ -536,12 +536,13 @@ private class ToolCallRow(toolCall: AcpSessionService.ToolCallInfo) : JPanel() {
 }
 
 private class MarkdownPane(content: String) : JEditorPane() {
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+
     init {
         isEditable = false
         isOpaque = false
         foreground = UIUtil.getLabelForeground()
         border = JBUI.Borders.empty()
-        maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
         editorKit = HTMLEditorKitBuilder.simple()
         val htmlEditorKit = editorKit as javax.swing.text.html.HTMLEditorKit
         htmlEditorKit.styleSheet.addRule(
