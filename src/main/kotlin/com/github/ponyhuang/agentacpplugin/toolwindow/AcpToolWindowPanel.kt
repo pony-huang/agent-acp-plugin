@@ -1,11 +1,13 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow
 
+import com.agentclientprotocol.annotations.UnstableApi
 import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
 import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpConversationPanel
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
+import com.agentclientprotocol.model.AvailableCommandInput
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+@OptIn(UnstableApi::class)
 class AcpToolWindowPanel(
     var project: Project,
     var disposable: Disposable
@@ -67,6 +70,7 @@ class AcpToolWindowPanel(
 
     init {
         logger.info("AcpToolWindowPanel init")
+        Disposer.register(disposable, userInputPanel)
         userInputPanel.onSubmit = { prompt ->
             uiScope.launch {
                 try {
@@ -165,7 +169,15 @@ class AcpToolWindowPanel(
         }
         uiScope.launch {
             sessionService.availableCommands.collectLatest { commands ->
-                userInputPanel.updateCommandHint(commands.isNotEmpty())
+                userInputPanel.updateCommands(
+                    commands.map { command ->
+                        AcpUserInputPanel.SessionCommandItem(
+                            name = command.name,
+                            description = command.description,
+                            hint = (command.input as? AvailableCommandInput.Unstructured)?.hint
+                        )
+                    }
+                )
             }
         }
         Disposer.register(disposable, controller)

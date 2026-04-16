@@ -10,7 +10,7 @@ class AcpBridge(
     },
 ) : Disposable {
     override fun dispose() {
-        TODO("Not yet implemented")
+        // No-op for now. The bridge only wires callbacks and has no owned resources.
     }
 
 }
