@@ -7,6 +7,7 @@ import com.agentclientprotocol.common.Event
 import com.agentclientprotocol.model.ContentBlock
 import com.agentclientprotocol.model.ModelInfo
 import com.agentclientprotocol.model.PromptResponse
+import com.agentclientprotocol.model.SessionId
 import com.agentclientprotocol.model.SessionMode
 import com.agentclientprotocol.model.SessionUpdate
 import com.intellij.openapi.Disposable
@@ -183,6 +184,44 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     suspend fun setModel(modelId: String) {
         _currentModelId.value = modelId
+    }
+
+    /**
+     * Resume an existing ACP session with the specified session ID.
+     */
+    @OptIn(UnstableApi::class)
+    suspend fun resumeSession(sessionId: String, agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
+        _isLoading.value = true
+        try {
+            val scope = CoroutineScope(Dispatchers.Default)
+            coroutineScope = scope
+
+            val configService = project.service<AcpAgentsConfigService>()
+            val sessionUpdateHandler: suspend (SessionUpdate) -> Unit = { update ->
+                handleSessionUpdate(update)
+            }
+            client = configService.createClientBridge(agentDefinition.displayName, scope, sessionUpdateHandler)
+
+            if (client != null) {
+                val info = client!!.connect()
+                if (info != null) {
+                    _currentAgent.value = info
+
+                    // Resume existing ACP session with session ID
+                    val session = client!!.loadSession(SessionId(sessionId))
+                    if (session != null) {
+                        _currentSession = session
+                        _availableModes.value = session.availableModes
+                        _availableModels.value = session.availableModels
+                        _currentModeId.value = session.currentMode.value.toString()
+                        _currentModelId.value = session.currentModel.value.toString()
+                        _isConnected.value = true
+                    }
+                }
+            }
+        } finally {
+            _isLoading.value = false
+        }
     }
 
     /**

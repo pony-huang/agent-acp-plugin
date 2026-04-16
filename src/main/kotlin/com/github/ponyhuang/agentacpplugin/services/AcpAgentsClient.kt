@@ -74,6 +74,28 @@ private fun applyEnvironmentVariables(processBuilder: ProcessBuilder, envs: List
 
 class DefaultClientSessionOperations(
     val sessionUpdateSink: suspend (SessionUpdate) -> Unit,
+    val permissionRequestSink: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse = { toolCall, permissions, _ ->
+        // Permission request interface - logs the request for now without actual notification
+        println("[PermissionRequest] Agent requested permissions for tool call: ${toolCall.title}")
+        println("[PermissionRequest] Available options:")
+        for ((i, permission) in permissions.withIndex()) {
+            println("[PermissionRequest]   ${i + 1}. ${permission.name} (${permission.kind})")
+        }
+        // Default: select first option if available, otherwise deny
+        if (permissions.isNotEmpty()) {
+            println("[PermissionRequest] Auto-selecting first option: ${permissions[0].name}")
+            RequestPermissionResponse(
+                RequestPermissionOutcome.Selected(permissions[0].optionId),
+                null
+            )
+        } else {
+            println("[PermissionRequest] No options available, denying request")
+            RequestPermissionResponse(
+                RequestPermissionOutcome.Cancelled,
+                null
+            )
+        }
+    },
 ) : ClientSessionOperations {
     private val activeTerminals = ConcurrentHashMap<String, Process>()
 
@@ -82,20 +104,8 @@ class DefaultClientSessionOperations(
         permissions: List<PermissionOption>,
         _meta: JsonElement?,
     ): RequestPermissionResponse {
-        println("Agent requested permissions for tool call: ${toolCall.title}. Choose one of the following options:")
-        for ((i, permission) in permissions.withIndex()) {
-            println("${i + 1}. ${permission.name}")
-        }
-        while (true) {
-            val selectedOption = readln().toIntOrNull()
-            if (selectedOption != null && selectedOption in permissions.indices) {
-                return RequestPermissionResponse(
-                    RequestPermissionOutcome.Selected(permissions[selectedOption].optionId),
-                    _meta
-                )
-            }
-            println("Invalid option selected. Try again.")
-        }
+        // Delegate to permission request sink - interface for future UI notification
+        return permissionRequestSink(toolCall, permissions, _meta)
     }
 
     override suspend fun notify(notification: SessionUpdate, _meta: JsonElement?) {
