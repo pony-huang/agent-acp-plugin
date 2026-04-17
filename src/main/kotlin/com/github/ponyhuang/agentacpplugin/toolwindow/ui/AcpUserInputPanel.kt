@@ -144,7 +144,7 @@ class AcpUserInputPanel(
 
     private val planComboBoxAction = PlanComboBoxAction(
         project = project,
-        onPlanSelected = onPlanChanged,
+        onPlanSelected = { onPlanChanged(it) },
         agentNotifier = agentNotifier
     )
     private val planComboBox = planComboBoxAction.createCustomComponent(
@@ -158,7 +158,7 @@ class AcpUserInputPanel(
 
     private val modelComboBoxAction = ModelComboBoxAction(
         project = project,
-        onModelSelected = onModelChanged,
+        onModelSelected = { onModelChanged(it) },
         agentNotifier = agentNotifier
     )
     private val modelComboBox = modelComboBoxAction.createCustomComponent(

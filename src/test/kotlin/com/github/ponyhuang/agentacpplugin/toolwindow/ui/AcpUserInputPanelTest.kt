@@ -6,6 +6,14 @@ import com.agentclientprotocol.model.ModelInfo
 import com.agentclientprotocol.model.SessionMode
 import com.agentclientprotocol.model.SessionModeId
 import com.github.ponyhuang.agentacpplugin.toolwindow.ToolWindowComposerState
+import com.github.ponyhuang.agentacpplugin.toolwindow.action.ModelComboBoxAction
+import com.github.ponyhuang.agentacpplugin.toolwindow.action.PlanComboBoxAction
+import com.intellij.openapi.actionSystem.ActionPlaces
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.ex.ComboBoxAction
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
@@ -119,10 +127,103 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
         panel.dispose()
     }
 
+    @OptIn(UnstableApi::class)
+    fun testPlanSelectionUsesLatestCallback() {
+        var initialCallbackCount = 0
+        var latestSelectedPlanId: String? = null
+        val panel = AcpUserInputPanel(
+            project = project,
+            agentItems = emptyList(),
+            onPlanChanged = { initialCallbackCount++ }
+        )
+        panel.updateModes(
+            listOf(
+                SessionMode(
+                    id = SessionModeId("default"),
+                    name = "Default",
+                    description = "Default mode"
+                ),
+                SessionMode(
+                    id = SessionModeId("plan"),
+                    name = "Plan",
+                    description = "Plan mode"
+                )
+            ),
+            "default"
+        )
+        panel.onPlanChanged = { plan -> latestSelectedPlanId = plan.id }
+
+        invokeComboBoxSelection<PlanComboBoxAction>(panel, "planComboBoxAction", 1)
+
+        assertEquals(0, initialCallbackCount)
+        assertEquals("plan", latestSelectedPlanId)
+        panel.dispose()
+    }
+
+    @OptIn(UnstableApi::class)
+    fun testModelSelectionUsesLatestCallback() {
+        var initialCallbackCount = 0
+        var latestSelectedModelId: String? = null
+        val panel = AcpUserInputPanel(
+            project = project,
+            agentItems = emptyList(),
+            onModelChanged = { initialCallbackCount++ }
+        )
+        panel.updateModels(
+            listOf(
+                ModelInfo(
+                    modelId = ModelId("gpt-5"),
+                    name = "GPT-5",
+                    description = "Primary model"
+                ),
+                ModelInfo(
+                    modelId = ModelId("gpt-5.4"),
+                    name = "GPT-5.4",
+                    description = "Updated model"
+                )
+            ),
+            "gpt-5"
+        )
+        panel.onModelChanged = { model -> latestSelectedModelId = model.id }
+
+        invokeComboBoxSelection<ModelComboBoxAction>(panel, "modelComboBoxAction", 1)
+
+        assertEquals(0, initialCallbackCount)
+        assertEquals("gpt-5.4", latestSelectedModelId)
+        panel.dispose()
+    }
+
     private fun readComponent(panel: AcpUserInputPanel, fieldName: String): JComponent {
         return panel.javaClass.getDeclaredField(fieldName).apply {
             isAccessible = true
         }.get(panel) as JComponent
+    }
+
+    private inline fun <reified T : ComboBoxAction> invokeComboBoxSelection(
+        panel: AcpUserInputPanel,
+        fieldName: String,
+        index: Int
+    ) {
+        val action = panel.javaClass.getDeclaredField(fieldName).apply {
+            isAccessible = true
+        }.get(panel) as T
+        val componentName = fieldName.removeSuffix("Action").replaceFirstChar { it.lowercase() }
+        val component = readComponent(panel, componentName)
+        val group = ComboBoxAction::class.java.getDeclaredMethod(
+            "createPopupActionGroup",
+            JComponent::class.java,
+            com.intellij.openapi.actionSystem.DataContext::class.java
+        ).apply {
+            isAccessible = true
+        }.invoke(action, component, SimpleDataContext.EMPTY_CONTEXT) as DefaultActionGroup
+        val childAction = group.childActionsOrStubs[index] as AnAction
+        val event = AnActionEvent.createFromAnAction(
+            childAction,
+            null,
+            ActionPlaces.UNKNOWN,
+            SimpleDataContext.EMPTY_CONTEXT
+        )
+        childAction.actionPerformed(event)
     }
 
     private fun flushEdt() {

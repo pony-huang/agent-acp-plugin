@@ -7,6 +7,7 @@ import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpChatViewPanel
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.PlanEntriesPanel
 import com.agentclientprotocol.model.AvailableCommandInput
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpChatViewToolbar
 import com.intellij.openapi.application.ApplicationManager
@@ -20,6 +21,9 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
+import com.intellij.util.ui.JBUI
+import java.awt.BorderLayout
+import javax.swing.JPanel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +37,12 @@ class AcpToolWindowPanel(
     var project: Project,
     var disposable: Disposable
 ) : SimpleToolWindowPanel(true) {
+    companion object {
+        private const val DEFAULT_MAIN_SPLITTER_PROPORTION = 0.8f
+        private const val DEFAULT_PLAN_SPLITTER_PROPORTION = 0.45f
+        private const val COLLAPSED_PLAN_SPLITTER_PROPORTION = 0.18f
+    }
+
     private val logger: Logger = Logger.getInstance(AcpToolWindowPanel::class.java)
 
     private val configService = project.service<com.github.ponyhuang.agentacpplugin.services.AcpAgentsConfigService>()
@@ -77,6 +87,30 @@ class AcpToolWindowPanel(
     private val controller = AcpBridge(
         setComposerState = userInputPanel::setBusy,
     )
+    private val planEntriesPanel: PlanEntriesPanel = PlanEntriesPanel(
+        onExpandedChanged = { expanded ->
+            if (!expanded) {
+                rememberedPlanSplitterProportion = composerSplitter.proportion
+            }
+            composerSplitter.proportion = if (expanded) {
+                rememberedPlanSplitterProportion
+            } else {
+                COLLAPSED_PLAN_SPLITTER_PROPORTION
+            }
+        }
+    )
+    private val composerSplitter: Splitter = Splitter(
+        true,
+        DEFAULT_PLAN_SPLITTER_PROPORTION
+    ).apply {
+        setFirstComponent(planEntriesPanel)
+        setSecondComponent(userInputPanel)
+        setHonorComponentsMinimumSize(true)
+        dividerWidth = JBUI.scale(6)
+    }
+    private val composerContainer: JPanel = JPanel(BorderLayout())
+    private var rememberedPlanSplitterProportion: Float = DEFAULT_PLAN_SPLITTER_PROPORTION
+    private var lastPlanEntries: List<AcpSessionService.SessionPlanItem> = emptyList()
 
     init {
         logger.info("AcpToolWindowPanel init")
@@ -209,6 +243,13 @@ class AcpToolWindowPanel(
             }
         }
         uiScope.launch {
+            sessionService.latestPlanEntries.collectLatest { entries ->
+                runOnEdt {
+                    updatePlanEntries(entries)
+                }
+            }
+        }
+        uiScope.launch {
             sessionService.isLoading.collectLatest {
                 runOnEdt {
                     conversationAcpChatViewToolbar.update()
@@ -218,16 +259,57 @@ class AcpToolWindowPanel(
         Disposer.register(disposable, controller)
         Disposer.register(disposable, conversationAcpChatViewToolbar)
         Disposer.register(disposable) { uiScope.cancel() }
+        composerContainer.isOpaque = false
+        composerContainer.add(userInputPanel, BorderLayout.CENTER)
+
         val splitter = Splitter(
             true,   // vertical split
-            0.8f    // 8:2 ratio
+            DEFAULT_MAIN_SPLITTER_PROPORTION
         ).apply {
             setFirstComponent(conversationPanel)
-            setSecondComponent(userInputPanel)
+            setSecondComponent(composerContainer)
         }
         splitter.setHonorComponentsMinimumSize(true)
         setContent(splitter)
         toolbar = conversationAcpChatViewToolbar
+    }
+
+    private fun updatePlanEntries(entries: List<AcpSessionService.SessionPlanItem>) {
+        val hadEntries = lastPlanEntries.isNotEmpty()
+        lastPlanEntries = entries
+        planEntriesPanel.updatePlanEntries(entries)
+
+        if (entries.isEmpty()) {
+            showComposerWithoutPlan()
+            planEntriesPanel.setExpanded(true)
+            return
+        }
+
+        showComposerWithPlan()
+        if (!hadEntries || !planEntriesPanel.isExpanded()) {
+            planEntriesPanel.setExpanded(true)
+            composerSplitter.proportion = rememberedPlanSplitterProportion
+        }
+    }
+
+    private fun showComposerWithPlan() {
+        if (composerContainer.components.singleOrNull() === composerSplitter) {
+            return
+        }
+        composerContainer.removeAll()
+        composerContainer.add(composerSplitter, BorderLayout.CENTER)
+        composerContainer.revalidate()
+        composerContainer.repaint()
+    }
+
+    private fun showComposerWithoutPlan() {
+        if (composerContainer.components.singleOrNull() === userInputPanel) {
+            return
+        }
+        composerContainer.removeAll()
+        composerContainer.add(userInputPanel, BorderLayout.CENTER)
+        composerContainer.revalidate()
+        composerContainer.repaint()
     }
 
     private fun runOnEdt(action: () -> Unit) {
