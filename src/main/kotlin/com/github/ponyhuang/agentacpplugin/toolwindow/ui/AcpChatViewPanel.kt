@@ -110,6 +110,11 @@ class AcpChatViewPanel(
                                     sessionService.submitPermissionRequest(requestId, optionId)
                                 }
                             },
+                            onCancelPrompt = {
+                                uiScope.launch {
+                                    sessionService.cancel()
+                                }
+                            },
                             promptState = messagePromptState(
                                 message = message,
                                 latestAssistantMessageId = latestAssistantMessageId,
@@ -249,6 +254,7 @@ private class MessageCardPanel(
     val message: AcpSessionService.ChatMessage,
     pendingPermissionRequests: List<AcpSessionService.PermissionRequestInfo>,
     private val onPermissionSubmit: (String, String) -> Unit,
+    private val onCancelPrompt: () -> Unit,
     promptState: MessagePromptState?,
     thoughtExpanded: Boolean,
     onThoughtToggled: (Boolean) -> Unit
@@ -325,9 +331,11 @@ private class MessageCardPanel(
     }
 
     private fun createFooter(promptState: MessagePromptState): JComponent {
-        return JPanel(BorderLayout()).apply {
+        return MessagePromptFooter(
+            state = promptState,
+            onCancel = onCancelPrompt
+        ).apply {
             isOpaque = false
-            add(MessagePromptStatusIcon(promptState), BorderLayout.EAST)
         }
     }
 
@@ -441,6 +449,27 @@ private class ToolCallRow(toolCall: AcpSessionService.ToolCallInfo) : JPanel() {
                     }
                 )
             }
+        }
+    }
+}
+
+private class MessagePromptFooter(
+    state: MessagePromptState,
+    onCancel: () -> Unit
+) : JPanel(BorderLayout(JBUI.scale(8), 0)) {
+    init {
+        isOpaque = false
+
+        add(MessagePromptStatusIcon(state), BorderLayout.EAST)
+
+        if (state == MessagePromptState.RUNNING) {
+            add(
+                ActionLink("Cancel").apply {
+                    addActionListener { onCancel() }
+                    toolTipText = "Cancel the current ACP response"
+                },
+                BorderLayout.WEST
+            )
         }
     }
 }

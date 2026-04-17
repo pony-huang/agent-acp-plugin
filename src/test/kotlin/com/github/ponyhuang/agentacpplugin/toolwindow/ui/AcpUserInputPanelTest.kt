@@ -56,7 +56,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
     }
 
     @OptIn(UnstableApi::class)
-    fun testConnectedSessionEnablesSelectorsAndSendButton() {
+    fun testConnectedSessionEnablesSessionSelectorsAndActionButtons() {
         val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
         panel.setSessionConnected(true)
         panel.updateModes(
@@ -82,16 +82,18 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
 
         flushEdt()
 
-        assertTrue(readComponent(panel, "agentComboBox").isEnabled)
+        assertFalse(readComponent(panel, "agentComboBox").isEnabled)
         assertTrue(readComponent(panel, "planComboBox").isEnabled)
         assertTrue(readComponent(panel, "modelComboBox").isEnabled)
+        assertTrue(readComponent(panel, "connectionButton").isEnabled)
         assertTrue(readComponent(panel, "sendButton").isEnabled)
+        assertEquals("Disconnect", readButton(panel, "connectionButton").text)
 
         panel.dispose()
     }
 
     @OptIn(UnstableApi::class)
-    fun testBusyStateDisablesSelectorsAndSendButton() {
+    fun testBusyStateDisablesSelectorsAndActionButtons() {
         val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
         panel.setSessionConnected(true)
         panel.updateModes(
@@ -122,7 +124,17 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
         assertFalse(readComponent(panel, "agentComboBox").isEnabled)
         assertFalse(readComponent(panel, "planComboBox").isEnabled)
         assertFalse(readComponent(panel, "modelComboBox").isEnabled)
+        assertFalse(readComponent(panel, "connectionButton").isEnabled)
         assertFalse(readComponent(panel, "sendButton").isEnabled)
+
+        panel.dispose()
+    }
+
+    fun testDisconnectedSessionKeepsSendDisabledAndShowsConnectAction() {
+        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+
+        assertFalse(readComponent(panel, "sendButton").isEnabled)
+        assertEquals("Connect", readButton(panel, "connectionButton").text)
 
         panel.dispose()
     }
@@ -198,6 +210,9 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
             isAccessible = true
         }.get(panel) as JComponent
     }
+
+    private fun readButton(panel: AcpUserInputPanel, fieldName: String) =
+        readComponent(panel, fieldName) as javax.swing.JButton
 
     private inline fun <reified T : ComboBoxAction> invokeComboBoxSelection(
         panel: AcpUserInputPanel,

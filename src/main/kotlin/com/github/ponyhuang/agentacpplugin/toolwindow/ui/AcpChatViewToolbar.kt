@@ -1,6 +1,5 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
-import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
@@ -20,23 +19,11 @@ class AcpChatViewToolbar(
         true
     )
 
-    private val stopAction = object : AnAction("Stop", "Stop current ACP response", AllIcons.Actions.Suspend) {
-        override fun actionPerformed(e: AnActionEvent) {
-            onCancel()
-        }
-
-        override fun update(e: AnActionEvent) {
-            e.presentation.isEnabled = isLoading()
-        }
-    }
-
     init {
         layout = FlowLayout(FlowLayout.LEFT, 0, 0)
         isOpaque = true
         background = UIUtil.getPanelBackground()
         alignmentX = LEFT_ALIGNMENT
-        actionGroup.add(stopAction)
-        actionGroup.addSeparator()
         toolbar.targetComponent = this
         add(toolbar.component)
     }
@@ -47,11 +34,9 @@ class AcpChatViewToolbar(
         }
     }
 
-    internal fun isStopActionEnabled(): Boolean = isLoading()
+    internal fun isStopActionEnabled(): Boolean = false
 
-    internal fun performStopAction() {
-        onCancel()
-    }
+    internal fun performStopAction() = Unit
 
     private fun runOnEdt(action: () -> Unit) {
         val application = ApplicationManager.getApplication()

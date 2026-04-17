@@ -4,7 +4,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
 class AcpConversationToolbarTest : BasePlatformTestCase() {
 
-    fun testStopActionDisabledWhenSessionIsIdle() {
+    fun testToolbarStartsEmptyWhenSessionIsIdle() {
         val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { false },
             onCancel = {}
@@ -12,18 +12,20 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
 
         assertFalse(acpChatViewToolbar.isStopActionEnabled())
         assertNotNull(acpChatViewToolbar.toolbar.component)
+        assertEquals(0, acpChatViewToolbar.actionGroup.childActionsOrStubs.size)
     }
 
-    fun testStopActionEnabledWhenSessionIsRunning() {
+    fun testToolbarRemainsEmptyWhenSessionIsRunning() {
         val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { true },
             onCancel = {}
         )
 
-        assertTrue(acpChatViewToolbar.isStopActionEnabled())
+        assertFalse(acpChatViewToolbar.isStopActionEnabled())
+        assertEquals(0, acpChatViewToolbar.actionGroup.childActionsOrStubs.size)
     }
 
-    fun testStopActionInvokesCancelCallback() {
+    fun testPerformStopActionDoesNothingWhenToolbarIsReserved() {
         var cancelled = false
         val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { true },
@@ -32,6 +34,16 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
 
         acpChatViewToolbar.performStopAction()
 
-        assertTrue(cancelled)
+        assertFalse(cancelled)
+    }
+
+    fun testToolbarStaysEmptyForConnectionOnlyLoadingState() {
+        val acpChatViewToolbar = AcpChatViewToolbar(
+            isLoading = { false },
+            onCancel = {}
+        )
+
+        assertFalse(acpChatViewToolbar.isStopActionEnabled())
+        assertEquals(0, acpChatViewToolbar.actionGroup.childActionsOrStubs.size)
     }
 }

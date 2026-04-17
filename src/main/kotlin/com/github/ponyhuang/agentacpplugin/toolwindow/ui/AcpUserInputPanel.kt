@@ -51,6 +51,7 @@ class AcpUserInputPanel(
     agentItems: List<AgentComboBoxAction.AgentItem>,
     private val agentNotifier: AgentNotifier? = null,
     var onSubmit: (String) -> Unit = {},
+    var onConnectionToggle: () -> Unit = {},
     var onAgentChanged: (AgentComboBoxAction.AgentItem?) -> Unit = {},
     var onModelChanged: (ModelComboBoxAction.ModelItem) -> Unit = {},
     var onPlanChanged: (PlanComboBoxAction.PlanItem) -> Unit = {}
@@ -128,7 +129,10 @@ class AcpUserInputPanel(
 
     private val agentComboBoxAction = AgentComboBoxAction(
         availableAgents = agentItems,
-        onAgentSelected = { onAgentChanged(it) },
+        onAgentSelected = {
+            onAgentChanged(it)
+            updateControlStates()
+        },
         agentNotifier = agentNotifier
     )
     private val agentComboBox = agentComboBoxAction.createCustomComponent(
@@ -178,6 +182,16 @@ class AcpUserInputPanel(
         }
     }
 
+    var connectionButton = JButton("Connect").apply {
+        icon = AllIcons.Actions.Execute
+        isContentAreaFilled = false
+        border = JBUI.Borders.empty()
+        isOpaque = false
+        addActionListener {
+            onConnectionToggle()
+        }
+    }
+
     var bottom = panel {
         row {
             cell(
@@ -189,6 +203,9 @@ class AcpUserInputPanel(
             cell(
                 modelComboBox
             ).align(AlignX.FILL).focused()
+            cell(
+                connectionButton
+            ).align(AlignX.RIGHT).focused()
             cell(
                 sendButton
             ).align(AlignX.RIGHT).focused()
@@ -204,14 +221,12 @@ class AcpUserInputPanel(
         border = JBUI.Borders.empty(4)
         addToCenter(userInputTextArea)
         addToBottom(bottom)
+        updateControlStates()
     }
 
     fun setBusy(state: ToolWindowComposerState) {
         isBusy = state != ToolWindowComposerState.IDLE
-        sendButton.isEnabled = !isBusy
-        agentComboBox.isEnabled = !isBusy
-        planComboBox.isEnabled = isSessionConnected && !isBusy
-        modelComboBox.isEnabled = isSessionConnected && !isBusy
+        updateControlStates()
         userInputTextArea.isEnabled = true
         if (isBusy) {
             hideCommandPopup()
@@ -220,8 +235,7 @@ class AcpUserInputPanel(
 
     fun setSessionConnected(connected: Boolean) {
         isSessionConnected = connected
-        planComboBox.isEnabled = connected && !isBusy
-        modelComboBox.isEnabled = connected && !isBusy
+        updateControlStates()
     }
 
     fun updateModes(modes: List<SessionMode>, currentModeId: String?) {
@@ -240,8 +254,7 @@ class AcpUserInputPanel(
     fun clearSessionSelectors() {
         planComboBoxAction.clearModes()
         modelComboBoxAction.clearModels()
-        planComboBox.isEnabled = false
-        modelComboBox.isEnabled = false
+        updateControlStates()
     }
 
     fun updateCommands(commands: List<SessionCommandItem>) {
@@ -267,6 +280,22 @@ class AcpUserInputPanel(
 
     fun selectedAgent(): AgentRegistry.AgentDefinition? =
         agentComboBoxAction.getSelectedAgent()?.agentDefinition
+
+    private fun updateControlStates() {
+        val hasSelectedAgent = agentComboBoxAction.getSelectedAgent() != null
+        agentComboBox.isEnabled = !isBusy && !isSessionConnected
+        planComboBox.isEnabled = isSessionConnected && !isBusy && planComboBoxAction.getSelectedPlan() != null
+        modelComboBox.isEnabled = isSessionConnected && !isBusy && modelComboBoxAction.getSelectedModel() != null
+        sendButton.isEnabled = isSessionConnected && !isBusy
+        connectionButton.isEnabled = !isBusy && (isSessionConnected || hasSelectedAgent)
+        connectionButton.text = if (isSessionConnected) "Disconnect" else "Connect"
+        connectionButton.icon = if (isSessionConnected) AllIcons.Actions.Suspend else AllIcons.Actions.Execute
+        connectionButton.toolTipText = if (isSessionConnected) {
+            "Disconnect the current ACP session"
+        } else {
+            "Connect to the selected ACP agent"
+        }
+    }
 
     private fun submit() {
         if (isBusy) {

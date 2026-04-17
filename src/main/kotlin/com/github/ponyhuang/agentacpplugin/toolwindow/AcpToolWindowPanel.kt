@@ -66,7 +66,7 @@ class AcpToolWindowPanel(
 
     private val conversationPanel = AcpChatViewPanel(project, disposable)
     private val conversationAcpChatViewToolbar = AcpChatViewToolbar(
-        isLoading = { sessionService.isLoading.value },
+        isLoading = { sessionService.isLoading.value && sessionService.isConnected.value },
         onCancel = {
             uiScope.launch {
                 sessionService.cancel()
@@ -79,6 +79,7 @@ class AcpToolWindowPanel(
         project = project,
         agentItems = agentItems,
         agentNotifier = agentNotifier,
+        onConnectionToggle = {},
         onModelChanged = { model -> logger.info("Model changed: ${model.id}") },
         onPlanChanged = { plan -> logger.info("Plan changed: ${plan.id}") }
     ).apply {
@@ -97,49 +98,63 @@ class AcpToolWindowPanel(
         userInputPanel.onSubmit = { prompt ->
             uiScope.launch {
                 try {
-                    val cwd = project.basePath ?: System.getProperty("user.dir")
-                    if (!sessionService.isConnected.value) {
-                        val agent = userInputPanel.selectedAgent()
-                        if (agent != null) {
-                            sessionService.createSession(agent, cwd)
-                        }
-                    }
                     sessionService.sendPrompt(prompt)
                 } catch (t: Throwable) {
                     logger.warn("Failed to submit prompt", t)
                 }
             }
         }
-        userInputPanel.onAgentChanged = { agentItem ->
-            if (agentItem != null) {
-                uiScope.launch {
-                    try {
-                        val cwd = project.basePath ?: System.getProperty("user.dir")
-                        logger.info("Initializing ACP session for selected agent: id=${agentItem.id}, displayName=${agentItem.displayName}, cwd=$cwd")
+        userInputPanel.onConnectionToggle = {
+            uiScope.launch {
+                try {
+                    if (sessionService.isConnected.value) {
                         sessionService.disconnect()
-                        sessionService.createSession(agentItem.agentDefinition, cwd)
                         Notifications.Bus.notify(
                             Notification(
                                 "ACP Connection",
-                                "Connected to ${agentItem.displayName}",
+                                "Disconnected",
+                                "ACP session disconnected",
+                                NotificationType.INFORMATION
+                            ),
+                            project
+                        )
+                    } else {
+                        val agent = userInputPanel.selectedAgent() ?: return@launch
+                        val cwd = project.basePath ?: System.getProperty("user.dir")
+                        logger.info("Initializing ACP session for selected agent: id=${agent.id}, displayName=${agent.displayName}, cwd=$cwd")
+                        sessionService.createSession(agent, cwd)
+                        Notifications.Bus.notify(
+                            Notification(
+                                "ACP Connection",
+                                "Connected to ${agent.displayName}",
                                 "ACP session established successfully",
                                 NotificationType.INFORMATION
                             ),
                             project
                         )
-                    } catch (t: Throwable) {
-                        logger.warn("Failed to create session", t)
-                        Notifications.Bus.notify(
-                            Notification(
-                                "ACP Connection Error",
-                                "Failed to connect to ${agentItem.displayName}",
-                                t.message ?: "Unknown error",
-                                NotificationType.ERROR
-                            ),
-                            project
-                        )
                     }
+                } catch (t: Throwable) {
+                    logger.warn("Failed to toggle ACP session", t)
+                    val title = if (sessionService.isConnected.value) {
+                        "Failed to disconnect"
+                    } else {
+                        "Failed to connect to ${userInputPanel.selectedAgent()?.displayName ?: "selected agent"}"
+                    }
+                    Notifications.Bus.notify(
+                        Notification(
+                            "ACP Connection Error",
+                            title,
+                            t.message ?: "Unknown error",
+                            NotificationType.ERROR
+                        ),
+                        project
+                    )
                 }
+            }
+        }
+        userInputPanel.onAgentChanged = { agentItem ->
+            if (agentItem != null) {
+                logger.info("Selected ACP agent: id=${agentItem.id}, displayName=${agentItem.displayName}")
             }
         }
         userInputPanel.onPlanChanged = { plan ->

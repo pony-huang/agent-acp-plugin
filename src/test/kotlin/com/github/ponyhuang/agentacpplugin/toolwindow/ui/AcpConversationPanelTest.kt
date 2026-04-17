@@ -2,6 +2,7 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.icons.AllIcons
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -51,6 +52,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                     AcpSessionService.ChatMessage::class.java,
                     List::class.java,
                     Function2::class.java,
+                    Function0::class.java,
                     Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
                     java.lang.Boolean.TYPE,
                     Function1::class.java
@@ -65,6 +67,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                     ),
                     emptyList<AcpSessionService.PermissionRequestInfo>(),
                     { _: String, _: String -> },
+                    { },
                     null,
                     false,
                     { _: Boolean -> }
@@ -146,6 +149,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 AcpSessionService.ChatMessage::class.java,
                 List::class.java,
                 Function2::class.java,
+                Function0::class.java,
                 Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
                 java.lang.Boolean.TYPE,
                 Function1::class.java
@@ -154,6 +158,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 message,
                 emptyList<AcpSessionService.PermissionRequestInfo>(),
                 { _: String, _: String -> },
+                { },
                 null,
                 false,
                 { _: Boolean -> }
@@ -278,6 +283,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 AcpSessionService.ChatMessage::class.java,
                 List::class.java,
                 Function2::class.java,
+                Function0::class.java,
                 Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
                 java.lang.Boolean.TYPE,
                 Function1::class.java
@@ -286,6 +292,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 message,
                 emptyList<AcpSessionService.PermissionRequestInfo>(),
                 { _: String, _: String -> },
+                { },
                 null,
                 false,
                 { _: Boolean -> }
@@ -337,6 +344,25 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertNotNull(animatorField.get(statusIcon))
     }
 
+    fun testAssistantRunningPromptStatusShowsCancelActionInFooter() {
+        var cancelled = false
+        val card = instantiateMessageCard(
+            AcpSessionService.ChatMessage(
+                id = "assistant-running-cancel",
+                role = "assistant",
+                content = "Working on it"
+            ),
+            messagePromptState("RUNNING"),
+            onCancelPrompt = { cancelled = true }
+        )
+
+        val cancelLink = findAllByType(card, ActionLink::class.java).firstOrNull { it.text == "Cancel" }
+
+        assertNotNull(cancelLink)
+        cancelLink!!.doClick()
+        assertTrue(cancelled)
+    }
+
     fun testAssistantPromptStatusUsesCompletedIconForEndTurn() {
         val card = instantiateMessageCard(
             AcpSessionService.ChatMessage(
@@ -377,7 +403,8 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
 
     private fun instantiateMessageCard(
         message: AcpSessionService.ChatMessage,
-        promptState: Any?
+        promptState: Any?,
+        onCancelPrompt: () -> Unit = {}
     ): javax.swing.JComponent {
         return instantiatePrivatePanel(
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
@@ -385,6 +412,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 AcpSessionService.ChatMessage::class.java,
                 List::class.java,
                 Function2::class.java,
+                Function0::class.java,
                 Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
                 java.lang.Boolean.TYPE,
                 Function1::class.java
@@ -393,6 +421,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 message,
                 emptyList<AcpSessionService.PermissionRequestInfo>(),
                 { _: String, _: String -> },
+                onCancelPrompt,
                 promptState,
                 false,
                 { _: Boolean -> }
