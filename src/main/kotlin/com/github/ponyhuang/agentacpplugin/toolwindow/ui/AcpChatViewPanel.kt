@@ -380,10 +380,7 @@ private class PermissionRequestCardPanel(
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         alignmentX = LEFT_ALIGNMENT
         isOpaque = true
-        background = JBColor(
-            ColorUtil.mix(UIUtil.getPanelBackground(), JBColor(0xFFF1CF, 0x54452A), 0.75),
-            ColorUtil.mix(UIUtil.getPanelBackground(), JBColor(0xFFF1CF, 0x54452A), 0.45)
-        )
+        background = UIUtil.getPanelBackground()
         border = JBUI.Borders.empty(10)
 
         add(
