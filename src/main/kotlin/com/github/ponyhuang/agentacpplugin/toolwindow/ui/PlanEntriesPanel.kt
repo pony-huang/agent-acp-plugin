@@ -108,11 +108,17 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
 
     private fun refreshUi() {
         countLabel.text = if (entries.isEmpty()) "" else "${entries.size} items"
-        summaryLabel.text = entries.firstOrNull()?.content ?: ""
+        summaryLabel.text = currentSummaryEntry()?.content.orEmpty()
         toolTipText = if (entries.isEmpty()) null else "Hover to preview the latest plan"
         isVisible = entries.isNotEmpty()
         revalidate()
         repaint()
+    }
+
+    private fun currentSummaryEntry(): AcpSessionService.SessionPlanItem? {
+        return entries.firstOrNull { it.status == "in_progress" }
+            ?: entries.firstOrNull { it.status == "pending" }
+            ?: entries.firstOrNull()
     }
 
     private fun showPopup() {

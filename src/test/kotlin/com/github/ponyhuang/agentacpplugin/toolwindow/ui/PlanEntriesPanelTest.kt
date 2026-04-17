@@ -13,13 +13,18 @@ class PlanEntriesPanelTest : BasePlatformTestCase() {
         panel.updatePlanEntries(
             listOf(
                 AcpSessionService.SessionPlanItem(
-                    content = "Inspect files",
+                    content = "Completed prep",
                     priority = "high",
-                    status = "in_progress"
+                    status = "completed"
                 ),
                 AcpSessionService.SessionPlanItem(
                     content = "Render panel",
                     priority = "medium",
+                    status = "in_progress"
+                ),
+                AcpSessionService.SessionPlanItem(
+                    content = "Inspect files",
+                    priority = "high",
                     status = "pending"
                 )
             )
@@ -29,7 +34,29 @@ class PlanEntriesPanelTest : BasePlatformTestCase() {
         val summaryLabel = readComponent<JLabel>(panel, "summaryLabel")
 
         assertTrue(panel.isVisible)
-        assertEquals("2 items", countLabel.text)
+        assertEquals("3 items", countLabel.text)
+        assertEquals("Render panel", summaryLabel.text)
+    }
+
+    fun testSummaryFallsBackToPendingWhenNoTaskIsInProgress() {
+        val panel = PlanEntriesPanel()
+        panel.updatePlanEntries(
+            listOf(
+                AcpSessionService.SessionPlanItem(
+                    content = "Completed prep",
+                    priority = "high",
+                    status = "completed"
+                ),
+                AcpSessionService.SessionPlanItem(
+                    content = "Inspect files",
+                    priority = "medium",
+                    status = "pending"
+                )
+            )
+        )
+
+        val summaryLabel = readComponent<JLabel>(panel, "summaryLabel")
+
         assertEquals("Inspect files", summaryLabel.text)
     }
 
