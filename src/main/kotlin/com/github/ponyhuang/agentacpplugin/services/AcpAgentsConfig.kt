@@ -245,8 +245,8 @@ class AcpAgentsConfigService(private val project: Project) {
               "env": {}
             },
             "OpenCode": {
-              "command": "npx.cmd",
-              "args": ["opencode-ai@latest", "acp"],
+              "command": "opencode.cmd",
+              "args": ["acp"],
               "env": {}
             },
             "OpenClaw": {
