@@ -363,9 +363,15 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     @OptIn(UnstableApi::class)
     suspend fun cancel() {
+        if (!_isLoading.value) {
+            return
+        }
         val session = _currentSession ?: return
         logger.info("[AcpSessionService] Cancelling current operation...")
         session.cancel()
+        _lastStopReason.value = StopReason.CANCELLED
+        _sessionUpdatedAt.value = System.currentTimeMillis()
+        _isLoading.value = false
         logger.info("[AcpSessionService] Cancel completed")
     }
 

@@ -3,6 +3,7 @@ package com.github.ponyhuang.agentacpplugin.services
 import com.agentclientprotocol.model.ContentBlock
 import com.agentclientprotocol.model.Cost
 import com.agentclientprotocol.model.EmbeddedResourceResource
+import com.agentclientprotocol.model.ModelId
 import com.agentclientprotocol.model.PlanEntry
 import com.agentclientprotocol.model.PlanEntryPriority
 import com.agentclientprotocol.model.PlanEntryStatus
@@ -13,17 +14,21 @@ import com.agentclientprotocol.model.PromptResponse
 import com.agentclientprotocol.model.RequestPermissionOutcome
 import com.agentclientprotocol.model.SessionUpdate
 import com.agentclientprotocol.model.StopReason
+import com.agentclientprotocol.model.SessionModeId
 import com.agentclientprotocol.model.ToolCallContent
 import com.agentclientprotocol.model.ToolCallId
 import com.agentclientprotocol.model.ToolCallLocation
 import com.agentclientprotocol.model.ToolCallStatus
 import com.agentclientprotocol.model.ToolKind
+import com.agentclientprotocol.client.ClientSession
 import com.intellij.openapi.components.service
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.lang.reflect.Proxy
 
 class AcpSessionServiceTest : BasePlatformTestCase() {
 
@@ -182,6 +187,39 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertNotNull(service.sessionUpdatedAt.value)
     }
 
+    fun testCancelImmediatelyLeavesRunningStateAndMarksPromptCancelled() = runBlocking {
+        var cancelCalled = false
+        setCurrentSession(
+            Proxy.newProxyInstance(
+                ClientSession::class.java.classLoader,
+                arrayOf(ClientSession::class.java)
+            ) { _, method, _ ->
+                when (method.name) {
+                    "cancel" -> {
+                        cancelCalled = true
+                        Unit
+                    }
+                    "getCurrentMode" -> MutableStateFlow(SessionModeId("default"))
+                    "getCurrentModel" -> MutableStateFlow(ModelId("gpt-5"))
+                    "getAvailableModes",
+                    "getAvailableModels" -> emptyList<Any>()
+                    "getModesSupported",
+                    "getModelsSupported",
+                    "getConfigOptionsSupported" -> false
+                    else -> null
+                }
+            } as ClientSession
+        )
+        setLoading(true)
+
+        service.cancel()
+
+        assertTrue(cancelCalled)
+        assertFalse(service.isLoading.value)
+        assertEquals(StopReason.CANCELLED, service.lastStopReason.value)
+        assertNotNull(service.sessionUpdatedAt.value)
+    }
+
     fun testPermissionRequestIsExposedAndCanBeSubmitted() = runBlocking {
         val deferredResponse = async(Dispatchers.Default) {
             permissionRequestService.requestPermissions(
@@ -274,6 +312,20 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         val field = AcpSessionService::class.java.getDeclaredField("pendingPromptEchoRemainder")
         field.isAccessible = true
         field.set(service, value)
+    }
+
+    private fun setCurrentSession(session: ClientSession) {
+        val field = AcpSessionService::class.java.getDeclaredField("_currentSession")
+        field.isAccessible = true
+        field.set(service, session)
+    }
+
+    private fun setLoading(value: Boolean) {
+        val field = AcpSessionService::class.java.getDeclaredField("_isLoading")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val flow = field.get(service) as MutableStateFlow<Boolean>
+        flow.value = value
     }
 
     private suspend fun waitForCondition(predicate: () -> Boolean) {

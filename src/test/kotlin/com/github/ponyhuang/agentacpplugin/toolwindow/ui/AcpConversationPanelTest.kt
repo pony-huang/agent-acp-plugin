@@ -57,7 +57,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                     java.lang.Boolean.TYPE,
                     Function1::class.java
                 ),
-                arrayOf(
+                arrayOf<Any?>(
                     AcpSessionService.ChatMessage(
                         id = "assistant-fill",
                         role = "assistant",
@@ -66,11 +66,11 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                         toolCalls = emptyList()
                     ),
                     emptyList<AcpSessionService.PermissionRequestInfo>(),
-                    { _: String, _: String -> },
-                    { },
+                    ({ _: String, _: String -> } as (String, String) -> Unit),
+                    ({} as () -> Unit),
                     null,
                     false,
-                    { _: Boolean -> }
+                    ({ _: Boolean -> } as (Boolean) -> Unit)
                 )
             )
             val permissionCard = instantiatePrivatePanel(
@@ -157,11 +157,11 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             arrayOf(
                 message,
                 emptyList<AcpSessionService.PermissionRequestInfo>(),
-                { _: String, _: String -> },
-                { },
+                ({ _: String, _: String -> } as (String, String) -> Unit),
+                ({} as () -> Unit),
                 null,
                 false,
-                { _: Boolean -> }
+                ({ _: Boolean -> } as (Boolean) -> Unit)
             )
         )
 
@@ -252,13 +252,13 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
 
         val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "🔍 Search Search workspace" }
         val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
-        val animatorField = statusIcon.javaClass.getDeclaredField("iconAnimator").apply {
+        val animationTimer = statusIcon.javaClass.getDeclaredField("animationTimer").apply {
             isAccessible = true
         }
 
         assertNotNull(titleLabel)
         assertEquals(AllIcons.Process.Step_1, statusIcon.icon)
-        assertNotNull(animatorField.get(statusIcon))
+        assertNotNull(animationTimer.get(statusIcon))
     }
 
     fun testVisualPanelsKeepOnlyEmptyBorders() {
@@ -291,11 +291,11 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             arrayOf(
                 message,
                 emptyList<AcpSessionService.PermissionRequestInfo>(),
-                { _: String, _: String -> },
-                { },
+                ({ _: String, _: String -> } as (String, String) -> Unit),
+                ({} as () -> Unit),
                 null,
                 false,
-                { _: Boolean -> }
+                ({ _: Boolean -> } as (Boolean) -> Unit)
             )
         )
         val thoughtPanel = findByClassName(messageCard, "ThoughtPanel") as javax.swing.JComponent
@@ -336,12 +336,12 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         )
 
         val statusIcon = findByClassName(card, "MessagePromptStatusIcon") as JBLabel
-        val animatorField = statusIcon.javaClass.getDeclaredField("iconAnimator").apply {
+        val animationTimer = statusIcon.javaClass.getDeclaredField("animationTimer").apply {
             isAccessible = true
         }
 
         assertEquals(AllIcons.Process.Step_1, statusIcon.icon)
-        assertNotNull(animatorField.get(statusIcon))
+        assertNotNull(animationTimer.get(statusIcon))
     }
 
     fun testAssistantRunningPromptStatusShowsCancelActionInFooter() {
@@ -420,11 +420,11 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             arrayOf(
                 message,
                 emptyList<AcpSessionService.PermissionRequestInfo>(),
-                { _: String, _: String -> },
+                ({ _: String, _: String -> } as (String, String) -> Unit),
                 onCancelPrompt,
                 promptState,
                 false,
-                { _: Boolean -> }
+                ({ _: Boolean -> } as (Boolean) -> Unit)
             )
         )
     }

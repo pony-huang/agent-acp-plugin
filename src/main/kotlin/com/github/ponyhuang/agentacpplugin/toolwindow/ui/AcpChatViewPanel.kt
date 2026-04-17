@@ -13,9 +13,6 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.util.animation.Easing
-import com.intellij.util.animation.JBAnimator
-import com.intellij.util.animation.animation
 import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -491,29 +488,38 @@ private class MessagePromptStatusIcon(state: MessagePromptState) : JBLabel() {
         AllIcons.Process.Step_7,
         AllIcons.Process.Step_8
     )
-    private val iconAnimator = JBAnimator().apply {
-        period = 60
-        isCyclic = true
-        type = JBAnimator.Type.EACH_FRAME
-    }
+    private val animationTimer = Timer(60, null)
+    private val shouldAnimate = state == MessagePromptState.RUNNING
+    private var animationFrame = 0
 
     init {
         isOpaque = false
         icon = when (state) {
-            MessagePromptState.RUNNING -> AllIcons.Process.Step_1
+            MessagePromptState.RUNNING -> animatedIcons.first()
             MessagePromptState.COMPLETED -> AllIcons.General.InspectionsOK
             MessagePromptState.WARNING -> AllIcons.General.Warning
         }
-        if (state == MessagePromptState.RUNNING) {
-            iconAnimator.animate(animation(animatedIcons, ::setIcon).apply {
-                duration = iconAnimator.period * animatedIcons.size
-                easing = Easing.LINEAR
-            })
+        if (shouldAnimate) {
+            animationTimer.addActionListener {
+                animationFrame = (animationFrame + 1) % animatedIcons.size
+                icon = animatedIcons[animationFrame]
+                repaint()
+            }
+            animationTimer.isRepeats = true
+        }
+    }
+
+    override fun addNotify() {
+        super.addNotify()
+        if (shouldAnimate && !animationTimer.isRunning) {
+            animationFrame = 0
+            icon = animatedIcons[animationFrame]
+            animationTimer.start()
         }
     }
 
     override fun removeNotify() {
-        iconAnimator.stop()
+        animationTimer.stop()
         super.removeNotify()
     }
 }
@@ -661,26 +667,35 @@ private class ToolStatusIcon(status: String) : JBLabel() {
         AllIcons.Process.Step_7,
         AllIcons.Process.Step_8
     )
-    private val iconAnimator = JBAnimator().apply {
-        period = 60
-        isCyclic = true
-        type = JBAnimator.Type.EACH_FRAME
-    }
+    private val animationTimer = Timer(60, null)
+    private val shouldAnimate = status == "in_progress"
+    private var animationFrame = 0
 
     init {
         isOpaque = false
         border = JBUI.Borders.emptyLeft(4)
         icon = statusIconFor(status)
-        if (status == "in_progress") {
-            iconAnimator.animate(animation(animatedIcons, ::setIcon).apply {
-                duration = iconAnimator.period * animatedIcons.size
-                easing = Easing.LINEAR
-            })
+        if (shouldAnimate) {
+            animationTimer.addActionListener {
+                animationFrame = (animationFrame + 1) % animatedIcons.size
+                icon = animatedIcons[animationFrame]
+                repaint()
+            }
+            animationTimer.isRepeats = true
+        }
+    }
+
+    override fun addNotify() {
+        super.addNotify()
+        if (shouldAnimate && !animationTimer.isRunning) {
+            animationFrame = 0
+            icon = animatedIcons[animationFrame]
+            animationTimer.start()
         }
     }
 
     override fun removeNotify() {
-        iconAnimator.stop()
+        animationTimer.stop()
         super.removeNotify()
     }
 }
