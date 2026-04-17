@@ -9,6 +9,7 @@ import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpConversationPanel
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
 import com.agentclientprotocol.model.AvailableCommandInput
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpConversationToolbar
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
@@ -150,16 +151,20 @@ class AcpToolWindowPanel(
         userInputPanel.setSessionConnected(false)
         uiScope.launch {
             sessionService.isLoading.collectLatest { loading ->
-                userInputPanel.setBusy(
-                    if (loading) ToolWindowComposerState.SENDING else ToolWindowComposerState.IDLE
-                )
+                runOnEdt {
+                    userInputPanel.setBusy(
+                        if (loading) ToolWindowComposerState.SENDING else ToolWindowComposerState.IDLE
+                    )
+                }
             }
         }
         uiScope.launch {
             sessionService.isConnected.collectLatest { connected ->
-                userInputPanel.setSessionConnected(connected)
-                if (!connected) {
-                    userInputPanel.clearSessionSelectors()
+                runOnEdt {
+                    userInputPanel.setSessionConnected(connected)
+                    if (!connected) {
+                        userInputPanel.clearSessionSelectors()
+                    }
                 }
             }
         }
@@ -167,32 +172,47 @@ class AcpToolWindowPanel(
             combine(sessionService.availableModes, sessionService.currentModeId) { modes, currentModeId ->
                 modes to currentModeId
             }.collectLatest { (modes, currentModeId) ->
-                userInputPanel.updateModes(modes, currentModeId.ifBlank { null })
+                runOnEdt {
+                    userInputPanel.updateModes(modes, currentModeId.ifBlank { null })
+                }
             }
         }
         uiScope.launch {
             combine(sessionService.availableModels, sessionService.currentModelId) { models, currentModelId ->
                 models to currentModelId
             }.collectLatest { (models, currentModelId) ->
-                userInputPanel.updateModels(models, currentModelId.ifBlank { null })
+                runOnEdt {
+                    userInputPanel.updateModels(models, currentModelId.ifBlank { null })
+                }
             }
         }
         uiScope.launch {
             sessionService.availableCommands.collectLatest { commands ->
-                userInputPanel.updateCommands(
-                    commands.map { command ->
-                        AcpUserInputPanel.SessionCommandItem(
-                            name = command.name,
-                            description = command.description,
-                            hint = (command.input as? AvailableCommandInput.Unstructured)?.hint
-                        )
-                    }
-                )
+                runOnEdt {
+                    userInputPanel.updateCommands(
+                        commands.map { command ->
+                            AcpUserInputPanel.SessionCommandItem(
+                                name = command.name,
+                                description = command.description,
+                                hint = (command.input as? AvailableCommandInput.Unstructured)?.hint
+                            )
+                        }
+                    )
+                }
+            }
+        }
+        uiScope.launch {
+            sessionService.latestUsage.collectLatest { usage ->
+                runOnEdt {
+                    userInputPanel.updateLatestUsage(usage)
+                }
             }
         }
         uiScope.launch {
             sessionService.isLoading.collectLatest {
-                conversationAcpConversationToolbar.update()
+                runOnEdt {
+                    conversationAcpConversationToolbar.update()
+                }
             }
         }
         Disposer.register(disposable, controller)
@@ -208,5 +228,9 @@ class AcpToolWindowPanel(
         splitter.setHonorComponentsMinimumSize(true)
         setContent(splitter)
         toolbar = conversationAcpConversationToolbar
+    }
+
+    private fun runOnEdt(action: () -> Unit) {
+        ApplicationManager.getApplication().invokeLater(action)
     }
 }

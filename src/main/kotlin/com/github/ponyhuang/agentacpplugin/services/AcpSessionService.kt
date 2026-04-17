@@ -563,6 +563,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     /**
      * Handle usage update - logs token usage.
      */
+    @OptIn(UnstableApi::class)
     private fun handleUsageUpdate(update: SessionUpdate.UsageUpdate) {
         _latestUsage.value = SessionUsageSummary(
             usedTokens = update.used,
