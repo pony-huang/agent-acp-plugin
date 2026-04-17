@@ -167,7 +167,8 @@ class AcpConversationPanel(
                     )
                 }
                 if (state.isLoading) {
-                    messagePanel.add(createLoadingState())
+                    // 无需要进行显示
+//                    messagePanel.add(createLoadingState())
                 }
             }
 
