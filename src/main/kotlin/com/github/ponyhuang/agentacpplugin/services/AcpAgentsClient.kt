@@ -24,6 +24,7 @@ import java.nio.file.Paths
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.absolutePathString
+import kotlin.io.path.createDirectories
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
@@ -106,7 +107,9 @@ class DefaultClientSessionOperations(
     }
 
     override suspend fun fsWriteTextFile(path: String, content: String, _meta: JsonElement?): WriteTextFileResponse {
-        Paths.get(path).writeText(content)
+        val targetPath = Paths.get(path)
+        targetPath.parent?.createDirectories()
+        targetPath.writeText(content)
         return WriteTextFileResponse()
     }
 
@@ -115,7 +118,17 @@ class DefaultClientSessionOperations(
         cwd: String?, env: List<EnvVariable>,
         outputByteLimit: ULong?, _meta: JsonElement?,
     ): CreateTerminalResponse {
-        val processBuilder = ProcessBuilder(listOf(command) + args)
+        val processBuilder = if (System.getProperty("os.name").lowercase().contains("windows")) {
+            // Windows: 将 bash -c 命令转换为 cmd.exe /c
+            if (command == "bash" && args.firstOrNull() == "-c") {
+                ProcessBuilder(listOf("cmd.exe", "/c") + args.drop(1))
+            } else {
+                ProcessBuilder(listOf(command) + args)
+            }
+        } else {
+            // Unix-like: 直接执行
+            ProcessBuilder(listOf(command) + args)
+        }
         cwd?.let { processBuilder.directory(File(it)) }
         processBuilder.environment().putAll(env.associate { it.name to it.value })
 

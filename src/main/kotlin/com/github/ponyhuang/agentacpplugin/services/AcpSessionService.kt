@@ -338,6 +338,12 @@ class AcpSessionService(private val project: Project) : Disposable {
     suspend fun sendPrompt(text: String) {
         val session = _currentSession ?: return
 
+        // Guard against concurrent prompt submissions
+        if (_isLoading.value) {
+            logger.warn("Prompt submission ignored - another prompt is already in progress")
+            return
+        }
+
         _isLoading.value = true
         _lastStopReason.value = null
         addMessage(ROLE_USER, text)
