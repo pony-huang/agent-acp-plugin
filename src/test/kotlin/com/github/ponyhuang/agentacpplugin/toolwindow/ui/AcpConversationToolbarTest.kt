@@ -4,46 +4,61 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
 class AcpConversationToolbarTest : BasePlatformTestCase() {
 
-    fun testToolbarStartsEmptyWhenSessionIsIdle() {
+    fun testToolbarExposesSessionAction() {
         val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { false },
+            hasSelectedAgent = { true },
+            onShowSessions = {},
             onCancel = {}
         )
 
         assertFalse(acpChatViewToolbar.isStopActionEnabled())
         assertNotNull(acpChatViewToolbar.toolbar.component)
-        assertEquals(0, acpChatViewToolbar.actionGroup.childActionsOrStubs.size)
+        assertEquals(1, acpChatViewToolbar.actionGroup.childActionsOrStubs.size)
+        assertTrue(acpChatViewToolbar.isSessionActionEnabled())
     }
 
-    fun testToolbarRemainsEmptyWhenSessionIsRunning() {
-        val acpChatViewToolbar = AcpChatViewToolbar(
-            isLoading = { true },
-            onCancel = {}
-        )
-
-        assertFalse(acpChatViewToolbar.isStopActionEnabled())
-        assertEquals(0, acpChatViewToolbar.actionGroup.childActionsOrStubs.size)
-    }
-
-    fun testPerformStopActionDoesNothingWhenToolbarIsReserved() {
-        var cancelled = false
-        val acpChatViewToolbar = AcpChatViewToolbar(
-            isLoading = { true },
-            onCancel = { cancelled = true }
-        )
-
-        acpChatViewToolbar.performStopAction()
-
-        assertFalse(cancelled)
-    }
-
-    fun testToolbarStaysEmptyForConnectionOnlyLoadingState() {
+    fun testSessionActionDisabledWithoutSelectedAgent() {
+        var opened = false
         val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { false },
+            hasSelectedAgent = { false },
+            onShowSessions = { opened = true },
             onCancel = {}
         )
 
-        assertFalse(acpChatViewToolbar.isStopActionEnabled())
-        assertEquals(0, acpChatViewToolbar.actionGroup.childActionsOrStubs.size)
+        acpChatViewToolbar.performSessionAction()
+
+        assertFalse(acpChatViewToolbar.isSessionActionEnabled())
+        assertFalse(opened)
+    }
+
+    fun testSessionActionDisabledWhileLoading() {
+        var opened = false
+        val acpChatViewToolbar = AcpChatViewToolbar(
+            isLoading = { true },
+            hasSelectedAgent = { true },
+            onShowSessions = { opened = true },
+            onCancel = {}
+        )
+
+        acpChatViewToolbar.performSessionAction()
+
+        assertFalse(acpChatViewToolbar.isSessionActionEnabled())
+        assertFalse(opened)
+    }
+
+    fun testPerformSessionActionInvokesPopupCallbackWhenEnabled() {
+        var opened = false
+        val acpChatViewToolbar = AcpChatViewToolbar(
+            isLoading = { false },
+            hasSelectedAgent = { true },
+            onShowSessions = { opened = true },
+            onCancel = {}
+        )
+
+        acpChatViewToolbar.performSessionAction()
+
+        assertTrue(opened)
     }
 }

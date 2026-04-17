@@ -16,15 +16,20 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.ui.popup.JBPopup
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.util.Disposer
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
+import com.intellij.ui.ColoredListCellRenderer
+import com.intellij.ui.SimpleTextAttributes
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.JPanel
+import javax.swing.JList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,6 +37,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(UnstableApi::class)
 class AcpToolWindowPanel(
@@ -40,6 +48,8 @@ class AcpToolWindowPanel(
 ) : SimpleToolWindowPanel(true) {
     companion object {
         private const val DEFAULT_MAIN_SPLITTER_PROPORTION = 0.8f
+        private val SESSION_TIMESTAMP_FORMATTER: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault())
     }
 
     private val logger: Logger = Logger.getInstance(AcpToolWindowPanel::class.java)
@@ -66,7 +76,9 @@ class AcpToolWindowPanel(
 
     private val conversationPanel = AcpChatViewPanel(project, disposable)
     private val conversationAcpChatViewToolbar = AcpChatViewToolbar(
-        isLoading = { sessionService.isLoading.value && sessionService.isConnected.value },
+        isLoading = { sessionService.isLoading.value },
+        hasSelectedAgent = { userInputPanel.selectedAgent() != null },
+        onShowSessions = { showSessionPopup() },
         onCancel = {
             uiScope.launch {
                 sessionService.cancel()
@@ -91,6 +103,7 @@ class AcpToolWindowPanel(
         isVisible = false
     }
     private val composerContainer: JPanel = JPanel(BorderLayout())
+    private var sessionsPopup: JBPopup? = null
 
     init {
         logger.info("AcpToolWindowPanel init")
@@ -160,6 +173,7 @@ class AcpToolWindowPanel(
             if (agentItem != null) {
                 logger.info("Selected ACP agent: id=${agentItem.id}, displayName=${agentItem.displayName}")
             }
+            conversationAcpChatViewToolbar.update()
         }
         userInputPanel.onPlanChanged = { plan ->
             uiScope.launch {
@@ -273,6 +287,137 @@ class AcpToolWindowPanel(
         toolbar = conversationAcpChatViewToolbar
     }
 
+    internal fun showSessionPopup() {
+        val agent = userInputPanel.selectedAgent()
+        if (agent == null) {
+            Notifications.Bus.notify(
+                Notification(
+                    "ACP Sessions",
+                    "No agent selected",
+                    "Select an ACP agent before listing sessions.",
+                    NotificationType.WARNING
+                ),
+                project
+            )
+            return
+        }
+
+        val cwd = project.basePath ?: System.getProperty("user.dir")
+        uiScope.launch {
+            try {
+                val sessions = sessionService.listSessions(agent, cwd)
+                runOnEdt {
+                    showSessionPopup(agent, cwd, sessions)
+                }
+            } catch (t: Throwable) {
+                logger.warn("Failed to list ACP sessions", t)
+                Notifications.Bus.notify(
+                    Notification(
+                        "ACP Sessions",
+                        "Failed to list sessions",
+                        t.message ?: "Unknown error",
+                        NotificationType.ERROR
+                    ),
+                    project
+                )
+            }
+        }
+    }
+
+    internal fun showSessionPopup(
+        agent: AgentRegistry.AgentDefinition,
+        cwd: String,
+        sessions: List<AcpSessionService.SessionListItem>
+    ) {
+        sessionsPopup?.cancel()
+        val listModel = com.intellij.ui.CollectionListModel(sessions)
+        val sessionList = com.intellij.ui.components.JBList(listModel).apply {
+            visibleRowCount = 8
+            selectionMode = javax.swing.ListSelectionModel.SINGLE_SELECTION
+            cellRenderer = object : ColoredListCellRenderer<AcpSessionService.SessionListItem>() {
+                override fun customizeCellRenderer(
+                    list: JList<out AcpSessionService.SessionListItem>,
+                    value: AcpSessionService.SessionListItem?,
+                    index: Int,
+                    selected: Boolean,
+                    hasFocus: Boolean
+                ) {
+                    if (value == null) {
+                        return
+                    }
+                    append(value.title?.takeIf { it.isNotBlank() } ?: value.sessionId, SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    append("  ${buildSessionSubtitle(value)}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                }
+            }
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                    if (e.clickCount >= 1) {
+                        selectedValue?.let { session ->
+                            sessionsPopup?.cancel()
+                            resumeSession(agent, cwd, session.sessionId)
+                        }
+                    }
+                }
+            })
+        }
+
+        if (sessions.isNotEmpty()) {
+            sessionList.selectedIndex = 0
+        } else {
+            sessionList.emptyText.text = "No sessions found"
+        }
+
+        val popupContent = com.intellij.ui.components.JBScrollPane(sessionList).apply {
+            border = JBUI.Borders.empty()
+            preferredSize = Dimension(JBUI.scale(460), JBUI.scale(220))
+            horizontalScrollBarPolicy = com.intellij.ui.components.JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        }
+
+        sessionsPopup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(popupContent, sessionList)
+            .setTitle("Sessions")
+            .setResizable(false)
+            .setMovable(false)
+            .setRequestFocus(true)
+            .setCancelOnClickOutside(true)
+            .setCancelOnOtherWindowOpen(true)
+            .createPopup()
+        sessionsPopup?.showUnderneathOf(conversationAcpChatViewToolbar)
+    }
+
+    internal fun resumeSession(
+        agent: AgentRegistry.AgentDefinition,
+        cwd: String,
+        sessionId: String
+    ) {
+        uiScope.launch {
+            try {
+                sessionService.disconnect()
+                sessionService.resumeSession(sessionId, agent, cwd)
+                Notifications.Bus.notify(
+                    Notification(
+                        "ACP Sessions",
+                        "Session resumed",
+                        "Resumed session $sessionId",
+                        NotificationType.INFORMATION
+                    ),
+                    project
+                )
+            } catch (t: Throwable) {
+                logger.warn("Failed to resume ACP session $sessionId", t)
+                Notifications.Bus.notify(
+                    Notification(
+                        "ACP Sessions",
+                        "Failed to resume session",
+                        t.message ?: "Unknown error",
+                        NotificationType.ERROR
+                    ),
+                    project
+                )
+            }
+        }
+    }
+
     private fun updatePlanEntries(entries: List<AcpSessionService.SessionPlanItem>) {
         planEntriesPanel.updatePlanEntries(entries)
         composerContainer.revalidate()
@@ -287,5 +432,16 @@ class AcpToolWindowPanel(
 
     private fun runOnEdt(action: () -> Unit) {
         ApplicationManager.getApplication().invokeLater(action)
+    }
+
+    private fun buildSessionSubtitle(session: AcpSessionService.SessionListItem): String {
+        val updatedAt = session.updatedAtMillis?.let {
+            SESSION_TIMESTAMP_FORMATTER.format(Instant.ofEpochMilli(it))
+        } ?: "Unknown update time"
+        return "$updatedAt • ${shortSessionId(session.sessionId)}"
+    }
+
+    private fun shortSessionId(sessionId: String): String {
+        return if (sessionId.length <= 10) sessionId else "${sessionId.take(8)}..."
     }
 }

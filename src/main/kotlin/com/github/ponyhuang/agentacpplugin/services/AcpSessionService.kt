@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -160,6 +161,13 @@ class AcpSessionService(private val project: Project) : Disposable {
         val costCurrency: String? = null
     )
 
+    data class SessionListItem(
+        val sessionId: String,
+        val title: String?,
+        val cwd: String,
+        val updatedAtMillis: Long?,
+    )
+
     data class PermissionRequestInfo(
         val requestId: String,
         val toolCallId: String,
@@ -214,6 +222,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     suspend fun createSession(agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
         _isLoading.value = true
         try {
+            shutdownActiveClient()
             resetDerivedSessionState()
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             coroutineScope = scope
@@ -276,6 +285,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     suspend fun resumeSession(sessionId: String, agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
         _isLoading.value = true
         try {
+            shutdownActiveClient()
             resetDerivedSessionState()
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             coroutineScope = scope
@@ -303,10 +313,14 @@ class AcpSessionService(private val project: Project) : Disposable {
                 client!!.connect()
             } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
 
+            if (info.capabilities.sessionCapabilities.resume == null) {
+                throw IllegalStateException("Agent '${agentDefinition.displayName}' does not support session resume.")
+            }
+
             _currentAgent.value = info
 
             val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
-                client!!.loadSession(SessionId(sessionId))
+                client!!.resumeSession(SessionId(sessionId))
             } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not resume session '$sessionId'.")
 
             _currentSession = session
@@ -328,6 +342,49 @@ class AcpSessionService(private val project: Project) : Disposable {
             throw t
         } finally {
             _isLoading.value = false
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    suspend fun listSessions(
+        agentDefinition: AgentRegistry.AgentDefinition,
+        cwd: String
+    ): List<SessionListItem> = withContext(Dispatchers.IO) {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val configService = project.service<AcpAgentsConfigService>()
+        val temporaryClient = configService.createClientBridge(
+            agentDefinition.displayName,
+            scope,
+            sessionUpdateSink = {},
+            permissionRequestSink = { _, permissions, meta ->
+                autoApprovePermissions(permissions, meta)
+            }
+        ) ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' is not configured.")
+
+        try {
+            val info = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
+                temporaryClient.connect()
+            } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
+
+            if (info.capabilities.sessionCapabilities.list == null) {
+                throw IllegalStateException("Agent '${agentDefinition.displayName}' does not support session listing.")
+            }
+
+            temporaryClient.listSessions(cwd).map { sessionInfo ->
+                SessionListItem(
+                    sessionId = sessionInfo.sessionId.value,
+                    title = sessionInfo.title,
+                    cwd = sessionInfo.cwd,
+                    updatedAtMillis = parseUpdatedAt(sessionInfo.updatedAt)
+                )
+            }.sortedWith(
+                compareByDescending<SessionListItem> { it.updatedAtMillis ?: Long.MIN_VALUE }
+                    .thenByDescending { it.title.orEmpty() }
+                    .thenByDescending { it.sessionId }
+            )
+        } finally {
+            temporaryClient.close()
+            scope.cancel()
         }
     }
 
@@ -782,7 +839,10 @@ class AcpSessionService(private val project: Project) : Disposable {
         _sessionUpdatedAt.value = System.currentTimeMillis()
     }
 
-    private fun parseUpdatedAt(value: String): Long? {
+    private fun parseUpdatedAt(value: String?): Long? {
+        if (value == null) {
+            return null
+        }
         return try {
             Instant.parse(value).toEpochMilli()
         } catch (_: DateTimeParseException) {
@@ -808,10 +868,7 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Disconnect from the current session.
      */
     fun disconnect() {
-        client = null
-        coroutineScope?.cancel()
-        coroutineScope = null
-        _currentSession = null
+        shutdownActiveClient()
         _isConnected.value = false
         _currentAgent.value = null
         _messages.value = emptyList()
@@ -893,6 +950,14 @@ class AcpSessionService(private val project: Project) : Disposable {
     override fun dispose() {
         serviceScope.cancel()
         disconnect()
+    }
+
+    private fun shutdownActiveClient() {
+        client?.close()
+        client = null
+        coroutineScope?.cancel()
+        coroutineScope = null
+        _currentSession = null
     }
 
     private fun autoApprovePermissions(

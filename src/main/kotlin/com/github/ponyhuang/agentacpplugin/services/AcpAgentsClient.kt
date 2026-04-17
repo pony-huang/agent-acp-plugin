@@ -15,6 +15,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.toList
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
@@ -227,6 +228,7 @@ class AcpAgentClient(
     val permissionRequestSink: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse,
 ) {
     private var client: Client? = null
+    private var protocol: Protocol? = null
     private val sessionCreationParameters: SessionCreationParameters
         get() = SessionCreationParameters(projectSessionRoot(project), emptyList())
 
@@ -234,6 +236,7 @@ class AcpAgentClient(
     suspend fun connect(): AgentInfo? {
         val transport = createProcessStdioTransport(coroutineScope, envs, cmd)
         val protocol = Protocol(coroutineScope, transport)
+        this.protocol = protocol
         client = Client(protocol)
         protocol.start()
         return client?.initialize(
@@ -252,6 +255,25 @@ class AcpAgentClient(
             sessionId,
             sessionCreationParameters
         ) { _, _ -> DefaultClientSessionOperations(sessionUpdateSink, permissionRequestSink) }
+    }
+
+    @OptIn(UnstableApi::class)
+    suspend fun resumeSession(sessionId: SessionId): ClientSession? {
+        return client?.resumeSession(
+            sessionId,
+            sessionCreationParameters
+        ) { _, _ -> DefaultClientSessionOperations(sessionUpdateSink, permissionRequestSink) }
+    }
+
+    @OptIn(UnstableApi::class)
+    suspend fun listSessions(cwd: String? = projectSessionRoot(project)): List<SessionInfo> {
+        return client?.listSessions(cwd = cwd)?.toList().orEmpty()
+    }
+
+    fun close() {
+        protocol?.close()
+        protocol = null
+        client = null
     }
 
     private companion object {
