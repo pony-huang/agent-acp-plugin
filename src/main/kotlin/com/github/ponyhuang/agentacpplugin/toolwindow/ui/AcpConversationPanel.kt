@@ -33,6 +33,8 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -63,8 +65,8 @@ class AcpConversationPanel(
         }
     )
     private val messagePanel = JPanel().apply {
-        layout = VerticalLayout(8)
-        border = JBUI.Borders.empty(8)
+        layout = GridBagLayout()
+        border = JBUI.Borders.empty(8, 4)
         background = UIUtil.getPanelBackground()
     }
     private val messageScrollPane = JBScrollPane(messagePanel).apply {
@@ -141,10 +143,11 @@ class AcpConversationPanel(
             expandedThoughts.retainAll(state.messages.map { it.id }.toSet())
             messagePanel.removeAll()
             if (state.messages.isEmpty() && !state.isLoading) {
-                messagePanel.add(createEmptyState())
+                addMessageRow(createEmptyState(), 0, false)
             } else {
+                var rowIndex = 0
                 state.messages.forEach { message ->
-                    messagePanel.add(
+                    addMessageRow(
                         MessageCardPanel(
                             message = message,
                             thoughtExpanded = expandedThoughts.contains(message.id),
@@ -155,11 +158,12 @@ class AcpConversationPanel(
                                     expandedThoughts.remove(message.id)
                                 }
                             }
-                        )
+                        ),
+                        rowIndex++
                     )
                 }
                 state.pendingPermissionRequests.forEach { request ->
-                    messagePanel.add(
+                    addMessageRow(
                         PermissionRequestCardPanel(
                             request = request,
                             onSubmit = { optionId ->
@@ -167,13 +171,15 @@ class AcpConversationPanel(
                                     sessionService.submitPermissionRequest(request.requestId, optionId)
                                 }
                             }
-                        )
+                        ),
+                        rowIndex++
                     )
                 }
                 if (state.isLoading) {
                     // 无需要进行显示
-//                    messagePanel.add(createLoadingState())
+//                    addMessageRow(createLoadingState(), rowIndex++)
                 }
+                addMessageSpacer(rowIndex)
             }
 
             messagePanel.revalidate()
@@ -185,10 +191,41 @@ class AcpConversationPanel(
         }
     }
 
+    private fun addMessageRow(component: JComponent, row: Int, addBottomGap: Boolean = true) {
+        messagePanel.add(
+            component.apply {
+                alignmentX = LEFT_ALIGNMENT
+            },
+            GridBagConstraints().apply {
+                gridx = 0
+                gridy = row
+                weightx = 1.0
+                fill = GridBagConstraints.HORIZONTAL
+                anchor = GridBagConstraints.NORTHWEST
+                insets = JBUI.insetsBottom(if (addBottomGap) 8 else 0)
+            }
+        )
+    }
+
+    private fun addMessageSpacer(row: Int) {
+        messagePanel.add(
+            JPanel().apply {
+                isOpaque = false
+            },
+            GridBagConstraints().apply {
+                gridx = 0
+                gridy = row
+                weightx = 1.0
+                weighty = 1.0
+                fill = GridBagConstraints.BOTH
+            }
+        )
+    }
+
     private fun createEmptyState(): JComponent {
         return JPanel(BorderLayout()).apply {
             isOpaque = false
-            border = JBUI.Borders.empty(24, 8)
+            border = JBUI.Borders.empty(24, 4)
             add(
                 JBLabel("Start a conversation to see ACP messages here.").apply {
                     foreground = UIUtil.getContextHelpForeground()
@@ -397,6 +434,7 @@ private class MessageCardPanel(
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        alignmentX = LEFT_ALIGNMENT
         isOpaque = true
         background = backgroundForRole(message.role)
         border = JBUI.Borders.empty(10)
@@ -453,6 +491,7 @@ private class ThoughtPanel(
 
     init {
         layout = BorderLayout(0, JBUI.scale(6))
+        alignmentX = LEFT_ALIGNMENT
         isOpaque = true
         background = UIUtil.getPanelBackground()
         border = JBUI.Borders.empty(6, 8)
@@ -477,6 +516,8 @@ private class ThoughtPanel(
 }
 
 private class ToolCallListPanel(toolCalls: List<AcpSessionService.ToolCallInfo>) : JPanel() {
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         alignmentX = LEFT_ALIGNMENT
@@ -495,6 +536,7 @@ private class ToolCallRow(toolCall: AcpSessionService.ToolCallInfo) : JPanel() {
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        alignmentX = LEFT_ALIGNMENT
         isOpaque = true
         background = UIUtil.getPanelBackground()
         border = JBUI.Borders.empty(6, 8)
@@ -544,6 +586,7 @@ private class PermissionRequestCardPanel(
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        alignmentX = LEFT_ALIGNMENT
         isOpaque = true
         background = JBColor(
             ColorUtil.mix(UIUtil.getPanelBackground(), JBColor(0xFFF1CF, 0x54452A), 0.75),
@@ -612,6 +655,7 @@ private class MarkdownPane(content: String) : JEditorPane() {
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     init {
+        alignmentX = LEFT_ALIGNMENT
         isEditable = false
         isOpaque = false
         foreground = UIUtil.getLabelForeground()
