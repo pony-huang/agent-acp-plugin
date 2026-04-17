@@ -31,6 +31,11 @@ Use Java/Kotlin toolchain 21 as configured in Gradle.
 - When inspecting ACP SDK source or types, prefer reading the local checkout at `E:\workplace\kotlin-sdk` instead of decompiling or unpacking Maven cache artifacts.
 - Treat protocol and SDK docs as the source of truth for ACP message/session behavior.
 
+## IntelliJ Plugin API Reference Baseline
+- When the task is about JetBrains IntelliJ Platform / IntelliJ Plugin API usage, prefer reading local IntelliJ Community source at `D:\workspace\intellij-community`.
+- For concrete internal usage examples, prefer checking `D:\workspace\intellij-community\platform\platform-impl\internal\src\com\intellij\internal` before falling back to generic examples.
+- Use local IntelliJ source and bundled examples as the primary reference for IntelliJ Plugin API behavior in this repository.
+
 ## Testing Guidelines
 - Test framework is IntelliJ Platform test framework with JUnit4 (`BasePlatformTestCase`).
 - Name tests as `test...` methods (for example, `testRename`, `testProjectService`).
