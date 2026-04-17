@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
 class AcpConversationToolbarTest : BasePlatformTestCase() {
@@ -16,6 +17,7 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
         assertNotNull(acpChatViewToolbar.toolbar.component)
         assertEquals(1, acpChatViewToolbar.actionGroup.childActionsOrStubs.size)
         assertTrue(acpChatViewToolbar.isSessionActionEnabled())
+        assertTrue((acpChatViewToolbar.actionGroup.childActionsOrStubs.single() as AnAction).displayTextInToolbar())
     }
 
     fun testSessionActionDisabledWithoutSelectedAgent() {

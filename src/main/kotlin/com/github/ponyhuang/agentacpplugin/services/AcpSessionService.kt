@@ -50,7 +50,11 @@ class AcpSessionService(private val project: Project) : Disposable {
     private val logger: Logger = Logger.getInstance(AcpSessionService::class.java)
     
     private val permissionRequestService = project.service<AcpPermissionRequestService>()
+    private val persistenceService = project.service<AcpSessionPersistenceService>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    // Current agent definition (from our config, not from ACP agent)
+    private var currentAgentDefinition: AgentRegistry.AgentDefinition? = null
 
 
     // Connection state
@@ -226,6 +230,7 @@ class AcpSessionService(private val project: Project) : Disposable {
             resetDerivedSessionState()
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             coroutineScope = scope
+            currentAgentDefinition = agentDefinition
 
             val configService = project.service<AcpAgentsConfigService>()
             val sessionUpdateHandler: suspend (SessionUpdate) -> Unit = { update ->
@@ -262,6 +267,18 @@ class AcpSessionService(private val project: Project) : Disposable {
             _currentModeId.value = session.currentMode.value.toString()
             _currentModelId.value = session.currentModel.value.toString()
             _isConnected.value = true
+
+            // Persist the new session
+            val savedSession = AcpSessionPersistenceService.SavedSession(
+                id = UUID.randomUUID().toString(),
+                agentName = agentDefinition.displayName,
+                sessionId = session.sessionId.value,
+                title = "New Session",
+                lastUpdated = System.currentTimeMillis(),
+                cwd = cwd,
+                supportsLoadSession = info.capabilities.sessionCapabilities.resume != null
+            )
+            persistenceService.addSession(savedSession)
         } catch (t: TimeoutCancellationException) {
             logger.warn("Timed out while creating ACP session for agent ${agentDefinition.displayName}", t)
             disconnect()
@@ -289,6 +306,7 @@ class AcpSessionService(private val project: Project) : Disposable {
             resetDerivedSessionState()
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             coroutineScope = scope
+            currentAgentDefinition = agentDefinition
 
             val configService = project.service<AcpAgentsConfigService>()
             val sessionUpdateHandler: suspend (SessionUpdate) -> Unit = { update ->
@@ -329,6 +347,11 @@ class AcpSessionService(private val project: Project) : Disposable {
             _currentModeId.value = session.currentMode.value.toString()
             _currentModelId.value = session.currentModel.value.toString()
             _isConnected.value = true
+
+            // Update session lastUpdated in persistence
+            persistenceService.updateSession(sessionId, agentDefinition.displayName) { saved ->
+                saved.copy(lastUpdated = System.currentTimeMillis())
+            }
         } catch (t: TimeoutCancellationException) {
             logger.warn("Timed out while resuming ACP session $sessionId for agent ${agentDefinition.displayName}", t)
             disconnect()
@@ -716,7 +739,20 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Handle session info update - updates title/updatedAt.
      */
     private fun handleSessionInfoUpdate(update: SessionUpdate.SessionInfoUpdate) {
-        update.title?.let { _sessionTitle.value = it }
+        val sessionId = _currentSession?.sessionId?.value
+        val agentName = currentAgentDefinition?.displayName
+
+        update.title?.let {
+            _sessionTitle.value = it
+            // Persist title update
+            if (sessionId != null && agentName != null) {
+                serviceScope.launch {
+                    persistenceService.updateSession(sessionId, agentName) { saved ->
+                        saved.copy(title = it, lastUpdated = System.currentTimeMillis())
+                    }
+                }
+            }
+        }
         update.updatedAt?.let { _sessionUpdatedAt.value = parseUpdatedAt(it) }
         logger.info("[AcpSessionService] Session info update: title=${update.title}, updatedAt=${update.updatedAt}")
     }
@@ -834,7 +870,18 @@ class AcpSessionService(private val project: Project) : Disposable {
 
     private fun updateDerivedSessionTitleFromPrompt(text: String) {
         if (_sessionTitle.value.isNullOrBlank()) {
-            _sessionTitle.value = text.take(50).ifBlank { null }
+            val title = text.take(50).ifBlank { null }
+            _sessionTitle.value = title
+            // Persist the derived title from first prompt
+            val sessionId = _currentSession?.sessionId?.value
+            val agentName = currentAgentDefinition?.displayName
+            if (sessionId != null && agentName != null && title != null) {
+                serviceScope.launch {
+                    persistenceService.updateSession(sessionId, agentName) { saved ->
+                        saved.copy(title = title, lastUpdated = System.currentTimeMillis())
+                    }
+                }
+            }
         }
         _sessionUpdatedAt.value = System.currentTimeMillis()
     }
@@ -871,6 +918,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         shutdownActiveClient()
         _isConnected.value = false
         _currentAgent.value = null
+        currentAgentDefinition = null
         _messages.value = emptyList()
         _activeToolCalls.value = emptyMap()
         _availableCommands.value = emptyList()
@@ -879,6 +927,20 @@ class AcpSessionService(private val project: Project) : Disposable {
         _availableModels.value = emptyList()
         _currentModelId.value = ""
         resetDerivedSessionState()
+    }
+
+    /**
+     * Delete a saved session from persistence.
+     */
+    suspend fun deleteSavedSession(sessionId: String) {
+        persistenceService.deleteSession(sessionId)
+    }
+
+    /**
+     * Get all saved sessions from persistence.
+     */
+    fun getSavedSessions(): List<AcpSessionPersistenceService.SavedSession> {
+        return persistenceService.getResumableSessions()
     }
 
     /**

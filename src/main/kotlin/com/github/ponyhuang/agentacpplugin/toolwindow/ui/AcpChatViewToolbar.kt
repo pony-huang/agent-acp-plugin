@@ -4,6 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.icons.AllIcons
 import com.intellij.util.ui.UIUtil
 import java.awt.FlowLayout
 import javax.swing.JPanel
@@ -21,7 +22,9 @@ class AcpChatViewToolbar(
         actionGroup,
         true
     )
-    private val sessionsAction = object : DumbAwareAction("Sessions") {
+    private val sessionsAction = object : DumbAwareAction("Sessions", "List and resume ACP sessions", AllIcons.Actions.ListFiles) {
+        override fun displayTextInToolbar(): Boolean = true
+
         override fun actionPerformed(e: AnActionEvent) {
             if (!isSessionActionEnabled()) {
                 return
