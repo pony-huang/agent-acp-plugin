@@ -8,7 +8,7 @@ import com.intellij.util.ui.UIUtil
 import java.awt.FlowLayout
 import javax.swing.JPanel
 
-class AcpConversationToolbar(
+class AcpChatViewToolbar(
     private val isLoading: () -> Boolean,
     private val onCancel: () -> Unit
 ) : JPanel(), Disposable {

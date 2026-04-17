@@ -5,10 +5,10 @@ import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
 import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
-import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpConversationPanel
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpChatViewPanel
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
 import com.agentclientprotocol.model.AvailableCommandInput
-import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpConversationToolbar
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpChatViewToolbar
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
@@ -55,8 +55,8 @@ class AcpToolWindowPanel(
         )
     }
 
-    private val conversationPanel = AcpConversationPanel(project, disposable)
-    private val conversationAcpConversationToolbar = AcpConversationToolbar(
+    private val conversationPanel = AcpChatViewPanel(project, disposable)
+    private val conversationAcpChatViewToolbar = AcpChatViewToolbar(
         isLoading = { sessionService.isLoading.value },
         onCancel = {
             uiScope.launch {
@@ -211,12 +211,12 @@ class AcpToolWindowPanel(
         uiScope.launch {
             sessionService.isLoading.collectLatest {
                 runOnEdt {
-                    conversationAcpConversationToolbar.update()
+                    conversationAcpChatViewToolbar.update()
                 }
             }
         }
         Disposer.register(disposable, controller)
-        Disposer.register(disposable, conversationAcpConversationToolbar)
+        Disposer.register(disposable, conversationAcpChatViewToolbar)
         Disposer.register(disposable) { uiScope.cancel() }
         val splitter = Splitter(
             true,   // vertical split
@@ -227,7 +227,7 @@ class AcpToolWindowPanel(
         }
         splitter.setHonorComponentsMinimumSize(true)
         setContent(splitter)
-        toolbar = conversationAcpConversationToolbar
+        toolbar = conversationAcpChatViewToolbar
     }
 
     private fun runOnEdt(action: () -> Unit) {

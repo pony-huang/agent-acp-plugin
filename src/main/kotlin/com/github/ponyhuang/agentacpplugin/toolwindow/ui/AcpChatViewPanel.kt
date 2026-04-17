@@ -29,7 +29,7 @@ import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import javax.swing.*
 
-class AcpConversationPanel(
+class AcpChatViewPanel(
     project: Project,
     parentDisposable: Disposable
 ) : JPanel(BorderLayout()), Disposable {

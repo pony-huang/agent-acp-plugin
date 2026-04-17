@@ -5,32 +5,32 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 class AcpConversationToolbarTest : BasePlatformTestCase() {
 
     fun testStopActionDisabledWhenSessionIsIdle() {
-        val acpConversationToolbar = AcpConversationToolbar(
+        val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { false },
             onCancel = {}
         )
 
-        assertFalse(acpConversationToolbar.isStopActionEnabled())
-        assertNotNull(acpConversationToolbar.toolbar.component)
+        assertFalse(acpChatViewToolbar.isStopActionEnabled())
+        assertNotNull(acpChatViewToolbar.toolbar.component)
     }
 
     fun testStopActionEnabledWhenSessionIsRunning() {
-        val acpConversationToolbar = AcpConversationToolbar(
+        val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { true },
             onCancel = {}
         )
 
-        assertTrue(acpConversationToolbar.isStopActionEnabled())
+        assertTrue(acpChatViewToolbar.isStopActionEnabled())
     }
 
     fun testStopActionInvokesCancelCallback() {
         var cancelled = false
-        val acpConversationToolbar = AcpConversationToolbar(
+        val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { true },
             onCancel = { cancelled = true }
         )
 
-        acpConversationToolbar.performStopAction()
+        acpChatViewToolbar.performStopAction()
 
         assertTrue(cancelled)
     }

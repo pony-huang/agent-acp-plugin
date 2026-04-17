@@ -20,7 +20,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
 
     fun testMessagePanelUsesGridBagLayoutWithCompactHorizontalInset() {
         val disposable = Disposer.newDisposable()
-        val panel = AcpConversationPanel(project, disposable)
+        val panel = AcpChatViewPanel(project, disposable)
         try {
             val messagePanel = panel.javaClass.getDeclaredField("messagePanel").apply {
                 isAccessible = true
@@ -37,7 +37,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
 
     fun testMessageCardsAndPermissionCardsFillConversationWidth() {
         val disposable = Disposer.newDisposable()
-        val panel = AcpConversationPanel(project, disposable)
+        val panel = AcpChatViewPanel(project, disposable)
         try {
             panel.setSize(480, 720)
 
@@ -108,7 +108,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
 
     fun testConversationPanelDoesNotEmbedStatusHeaderComponent() {
         val disposable = Disposer.newDisposable()
-        val panel = AcpConversationPanel(project, disposable)
+        val panel = AcpChatViewPanel(project, disposable)
         try {
             assertNull(findByClassName(panel, "SessionStatusPanel"))
             assertNull(findByClassName(panel, "ConversationSummaryPanel"))
