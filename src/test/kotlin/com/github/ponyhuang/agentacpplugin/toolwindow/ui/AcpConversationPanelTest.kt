@@ -106,6 +106,17 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         }
     }
 
+    fun testConversationPanelDoesNotEmbedStatusHeaderComponent() {
+        val disposable = Disposer.newDisposable()
+        val panel = AcpConversationPanel(project, disposable)
+        try {
+            assertNull(findByClassName(panel, "SessionStatusPanel"))
+            assertNull(findByClassName(panel, "ConversationSummaryPanel"))
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
     fun testMessageCardAndChildrenClampMaximumHeightToPreferredHeight() {
         val message = AcpSessionService.ChatMessage(
             id = "assistant-1",

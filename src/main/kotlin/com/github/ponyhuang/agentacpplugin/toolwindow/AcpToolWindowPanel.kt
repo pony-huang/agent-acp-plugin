@@ -8,6 +8,7 @@ import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpConversationPanel
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
 import com.agentclientprotocol.model.AvailableCommandInput
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpConversationToolbar
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
@@ -54,6 +55,14 @@ class AcpToolWindowPanel(
     }
 
     private val conversationPanel = AcpConversationPanel(project, disposable)
+    private val conversationAcpConversationToolbar = AcpConversationToolbar(
+        isLoading = { sessionService.isLoading.value },
+        onCancel = {
+            uiScope.launch {
+                sessionService.cancel()
+            }
+        }
+    )
 
     // Initialize userInputPanel with linkage mechanism (callbacks set in init block)
     private val userInputPanel = AcpUserInputPanel(
@@ -92,6 +101,7 @@ class AcpToolWindowPanel(
                 uiScope.launch {
                     try {
                         val cwd = project.basePath ?: System.getProperty("user.dir")
+                        logger.info("Initializing ACP session for selected agent: id=${agentItem.id}, displayName=${agentItem.displayName}, cwd=$cwd")
                         sessionService.disconnect()
                         sessionService.createSession(agentItem.agentDefinition, cwd)
                         Notifications.Bus.notify(
@@ -180,7 +190,13 @@ class AcpToolWindowPanel(
                 )
             }
         }
+        uiScope.launch {
+            sessionService.isLoading.collectLatest {
+                conversationAcpConversationToolbar.update()
+            }
+        }
         Disposer.register(disposable, controller)
+        Disposer.register(disposable, conversationAcpConversationToolbar)
         Disposer.register(disposable) { uiScope.cancel() }
         val splitter = Splitter(
             true,   // vertical split
@@ -191,5 +207,6 @@ class AcpToolWindowPanel(
         }
         splitter.setHonorComponentsMinimumSize(true)
         setContent(splitter)
+        toolbar = conversationAcpConversationToolbar
     }
 }

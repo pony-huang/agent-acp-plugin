@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonElement
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -41,6 +43,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     companion object {
         private const val ROLE_USER = "user"
         private const val ROLE_ASSISTANT = "assistant"
+        private const val SESSION_CONNECT_TIMEOUT_MS = 15_000L
     }
 
     private val logger: Logger = Logger.getInstance(AcpSessionService::class.java)
@@ -218,25 +221,35 @@ class AcpSessionService(private val project: Project) : Disposable {
                 scope,
                 sessionUpdateHandler,
                 permissionRequestHandler
+            ) ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' is not configured.")
+
+            val info = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
+                client!!.connect()
+            } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
+
+            _currentAgent.value = info
+
+            val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
+                client!!.newSession()
+            } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not create a session.")
+
+            _currentSession = session
+            _availableModes.value = session.availableModes
+            _availableModels.value = session.availableModels
+            _currentModeId.value = session.currentMode.value.toString()
+            _currentModelId.value = session.currentModel.value.toString()
+            _isConnected.value = true
+        } catch (t: TimeoutCancellationException) {
+            logger.warn("Timed out while creating ACP session for agent ${agentDefinition.displayName}", t)
+            disconnect()
+            throw IllegalStateException(
+                "Timed out while connecting to '${agentDefinition.displayName}'. Check whether the agent is installed and can start in ACP mode.",
+                t
             )
-
-            if (client != null) {
-                val info = client!!.connect()
-                if (info != null) {
-                    _currentAgent.value = info
-
-                    // Create actual ACP session
-                    val session = client!!.newSession()
-                    if (session != null) {
-                        _currentSession = session
-                        _availableModes.value = session.availableModes
-                        _availableModels.value = session.availableModels
-                        _currentModeId.value = session.currentMode.value.toString()
-                        _currentModelId.value = session.currentModel.value.toString()
-                        _isConnected.value = true
-                    }
-                }
-            }
+        } catch (t: Throwable) {
+            logger.warn("Failed to create ACP session for agent ${agentDefinition.displayName}", t)
+            disconnect()
+            throw t
         } finally {
             _isLoading.value = false
         }
@@ -270,25 +283,35 @@ class AcpSessionService(private val project: Project) : Disposable {
                 scope,
                 sessionUpdateHandler,
                 permissionRequestHandler
+            ) ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' is not configured.")
+
+            val info = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
+                client!!.connect()
+            } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
+
+            _currentAgent.value = info
+
+            val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
+                client!!.loadSession(SessionId(sessionId))
+            } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not resume session '$sessionId'.")
+
+            _currentSession = session
+            _availableModes.value = session.availableModes
+            _availableModels.value = session.availableModels
+            _currentModeId.value = session.currentMode.value.toString()
+            _currentModelId.value = session.currentModel.value.toString()
+            _isConnected.value = true
+        } catch (t: TimeoutCancellationException) {
+            logger.warn("Timed out while resuming ACP session $sessionId for agent ${agentDefinition.displayName}", t)
+            disconnect()
+            throw IllegalStateException(
+                "Timed out while reconnecting to '${agentDefinition.displayName}'. Check whether the agent is installed and can start in ACP mode.",
+                t
             )
-
-            if (client != null) {
-                val info = client!!.connect()
-                if (info != null) {
-                    _currentAgent.value = info
-
-                    // Resume existing ACP session with session ID
-                    val session = client!!.loadSession(SessionId(sessionId))
-                    if (session != null) {
-                        _currentSession = session
-                        _availableModes.value = session.availableModes
-                        _availableModels.value = session.availableModels
-                        _currentModeId.value = session.currentMode.value.toString()
-                        _currentModelId.value = session.currentModel.value.toString()
-                        _isConnected.value = true
-                    }
-                }
-            }
+        } catch (t: Throwable) {
+            logger.warn("Failed to resume ACP session $sessionId for agent ${agentDefinition.displayName}", t)
+            disconnect()
+            throw t
         } finally {
             _isLoading.value = false
         }

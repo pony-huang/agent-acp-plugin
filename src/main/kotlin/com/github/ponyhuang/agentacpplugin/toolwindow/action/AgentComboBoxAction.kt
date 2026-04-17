@@ -7,6 +7,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbAware
 import java.awt.Color
 import javax.swing.JComponent
@@ -20,6 +21,7 @@ class AgentComboBoxAction(
     private val onAgentSelected: (AgentItem) -> Unit = {},
     private val agentNotifier: AgentNotifier? = null
 ) : ComboBoxAction(), DumbAware {
+    private val logger = Logger.getInstance(AgentComboBoxAction::class.java)
 
     private var selectedAgent: AgentItem? = null
 
@@ -35,6 +37,7 @@ class AgentComboBoxAction(
             availableAgents.forEach { agent ->
                 add(object : AnAction(agent.displayName, agent.description, null) {
                     override fun actionPerformed(e: AnActionEvent) {
+                        logger.info("Agent selected from combo box: id=${agent.id}, displayName=${agent.displayName}")
                         selectedAgent = agent
                         templatePresentation.text = agent.displayName
                         onAgentSelected(agent)
