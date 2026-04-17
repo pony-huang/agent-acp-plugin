@@ -124,8 +124,16 @@ class AcpSessionService(private val project: Project) : Disposable {
         val content: String,
         val thought: String? = null,
         val timestamp: Long = System.currentTimeMillis(),
-        val toolCalls: List<ToolCallInfo> = emptyList()
+        val toolCalls: List<ToolCallInfo> = emptyList(),
+        val entries: List<MessageEntry> = legacyEntries(content, thought, toolCalls)
     )
+
+    sealed interface MessageEntry {
+        data class Content(val text: String) : MessageEntry
+        data class Thought(val text: String) : MessageEntry
+        data class ToolCall(val toolCall: ToolCallInfo) : MessageEntry
+        data class PermissionRequest(val request: PermissionRequestInfo) : MessageEntry
+    }
 
     /**
      * Tool call info for tracking tool execution
@@ -188,6 +196,12 @@ class AcpSessionService(private val project: Project) : Disposable {
                     submitted = false
                 )
                 _pendingPermissionRequests.value = _pendingPermissionRequests.value + requestInfo
+                val assistantMessage = ensureAssistantMessage()
+                updateMessage(assistantMessage.id) { message ->
+                    message.copy(
+                        entries = message.entries + MessageEntry.PermissionRequest(requestInfo)
+                    )
+                }
             }
         }
     }
@@ -324,17 +338,23 @@ class AcpSessionService(private val project: Project) : Disposable {
     suspend fun sendPrompt(text: String) {
         val session = _currentSession ?: return
 
+        _isLoading.value = true
+        _lastStopReason.value = null
         addMessage(ROLE_USER, text)
         updateDerivedSessionTitleFromPrompt(text)
         pendingPromptEchoRemainder = text
 
-        // Collect streaming updates via Flow
-        val content = listOf(ContentBlock.Text(text))
-        session.prompt(content).collect { event ->
-            when (event) {
-                is Event.SessionUpdateEvent -> handleSessionUpdate(event.update)
-                is Event.PromptResponseEvent -> handlePromptResponse(event.response)
+        try {
+            // Collect streaming updates via Flow
+            val content = listOf(ContentBlock.Text(text))
+            session.prompt(content).collect { event ->
+                when (event) {
+                    is Event.SessionUpdateEvent -> handleSessionUpdate(event.update)
+                    is Event.PromptResponseEvent -> handlePromptResponse(event.response)
+                }
             }
+        } finally {
+            _isLoading.value = false
         }
     }
 
@@ -418,7 +438,10 @@ class AcpSessionService(private val project: Project) : Disposable {
         if (messages.isNotEmpty() && messages.last().role == ROLE_USER) {
             // Append to last user message
             val lastMsg = messages.last()
-            val updatedMsg = lastMsg.copy(content = lastMsg.content + content)
+            val updatedMsg = lastMsg.copy(
+                content = lastMsg.content + content,
+                entries = appendTextEntry(lastMsg.entries, content, isThought = false)
+            )
             _messages.value = messages.dropLast(1) + updatedMsg
         } else {
             // Create new user message (shouldn't happen normally)
@@ -435,7 +458,10 @@ class AcpSessionService(private val project: Project) : Disposable {
         if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
             // Append to last assistant message
             val lastMsg = messages.last()
-            val updatedMsg = lastMsg.copy(content = lastMsg.content + content)
+            val updatedMsg = lastMsg.copy(
+                content = lastMsg.content + content,
+                entries = appendTextEntry(lastMsg.entries, content, isThought = false)
+            )
             _messages.value = messages.dropLast(1) + updatedMsg
         } else {
             // Create new assistant message
@@ -452,7 +478,10 @@ class AcpSessionService(private val project: Project) : Disposable {
         if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
             // Append to last assistant message's thought
             val lastMsg = messages.last()
-            val updatedMsg = lastMsg.copy(thought = (lastMsg.thought ?: "") + thought)
+            val updatedMsg = lastMsg.copy(
+                thought = (lastMsg.thought ?: "") + thought,
+                entries = appendTextEntry(lastMsg.entries, thought, isThought = true)
+            )
             _messages.value = messages.dropLast(1) + updatedMsg
         } else {
             // Create new assistant message with thought
@@ -460,7 +489,10 @@ class AcpSessionService(private val project: Project) : Disposable {
                 val messages = _messages.value
                 if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
                     val lastMsg = messages.last()
-                    val updatedMsg = lastMsg.copy(thought = thought)
+                    val updatedMsg = lastMsg.copy(
+                        thought = thought,
+                        entries = appendTextEntry(lastMsg.entries, thought, isThought = true)
+                    )
                     _messages.value = messages.dropLast(1) + updatedMsg
                 }
             }
@@ -491,7 +523,10 @@ class AcpSessionService(private val project: Project) : Disposable {
         )
         val assistantMessage = ensureAssistantMessage()
         updateMessage(assistantMessage.id) { message ->
-            message.copy(toolCalls = message.toolCalls + toolCallInfo)
+            message.copy(
+                toolCalls = message.toolCalls + toolCallInfo,
+                entries = message.entries + MessageEntry.ToolCall(toolCallInfo)
+            )
         }
     }
 
@@ -507,7 +542,11 @@ class AcpSessionService(private val project: Project) : Disposable {
         // Update the tool call in messages
         val messages = _messages.value
         val updatedMessages = messages.map { msg ->
-            if (msg.toolCalls.any { it.toolCallId == toolCallId }) {
+            if (msg.toolCalls.any { it.toolCallId == toolCallId } ||
+                msg.entries.any { entry ->
+                    entry is MessageEntry.PermissionRequest && entry.request.toolCallId == toolCallId
+                }
+            ) {
                 val updatedToolCalls = msg.toolCalls.map { tc ->
                     if (tc.toolCallId == toolCallId) {
                         tc.copy(
@@ -519,7 +558,35 @@ class AcpSessionService(private val project: Project) : Disposable {
                         )
                     } else tc
                 }
-                msg.copy(toolCalls = updatedToolCalls)
+                val updatedEntries = msg.entries.map { entry ->
+                    when (entry) {
+                        is MessageEntry.ToolCall -> {
+                            if (entry.toolCall.toolCallId == toolCallId) {
+                                entry.copy(
+                                    toolCall = entry.toolCall.copy(
+                                        title = update.title ?: entry.toolCall.title,
+                                        kind = update.kind?.toUiValue() ?: entry.toolCall.kind,
+                                        status = update.status?.toUiValue() ?: entry.toolCall.status,
+                                        locations = updatedLocations ?: entry.toolCall.locations,
+                                        contentSummary = updatedSummary ?: entry.toolCall.contentSummary
+                                    )
+                                )
+                            } else {
+                                entry
+                            }
+                        }
+                        is MessageEntry.PermissionRequest -> {
+                            val updatedTitle = update.title
+                            if (entry.request.toolCallId == toolCallId && updatedTitle != null) {
+                                entry.copy(request = entry.request.copy(title = updatedTitle))
+                            } else {
+                                entry
+                            }
+                        }
+                        else -> entry
+                    }
+                }
+                msg.copy(toolCalls = updatedToolCalls, entries = updatedEntries)
             } else msg
         }
         _messages.value = updatedMessages
@@ -676,6 +743,26 @@ class AcpSessionService(private val project: Project) : Disposable {
         }
     }
 
+    private fun appendTextEntry(
+        entries: List<MessageEntry>,
+        text: String,
+        isThought: Boolean
+    ): List<MessageEntry> {
+        if (text.isEmpty()) {
+            return entries
+        }
+
+        val lastEntry = entries.lastOrNull()
+        return when {
+            isThought && lastEntry is MessageEntry.Thought ->
+                entries.dropLast(1) + lastEntry.copy(text = lastEntry.text + text)
+            !isThought && lastEntry is MessageEntry.Content ->
+                entries.dropLast(1) + lastEntry.copy(text = lastEntry.text + text)
+            isThought -> entries + MessageEntry.Thought(text)
+            else -> entries + MessageEntry.Content(text)
+        }
+    }
+
     private fun updateDerivedSessionTitleFromPrompt(text: String) {
         if (_sessionTitle.value.isNullOrBlank()) {
             _sessionTitle.value = text.take(50).ifBlank { null }
@@ -768,6 +855,26 @@ class AcpSessionService(private val project: Project) : Disposable {
                 request
             }
         }
+        _messages.value = _messages.value.map { message ->
+            if (message.entries.any { it is MessageEntry.PermissionRequest && it.request.requestId == requestId }) {
+                message.copy(
+                    entries = message.entries.map { entry ->
+                        if (entry is MessageEntry.PermissionRequest && entry.request.requestId == requestId) {
+                            entry.copy(
+                                request = entry.request.copy(
+                                    selectedOptionId = optionId,
+                                    submitted = true
+                                )
+                            )
+                        } else {
+                            entry
+                        }
+                    }
+                )
+            } else {
+                message
+            }
+        }
         return true
     }
 
@@ -840,4 +947,14 @@ class AcpSessionService(private val project: Project) : Disposable {
             PlanEntryStatus.COMPLETED -> "completed"
         }
     }
+}
+
+private fun legacyEntries(
+    content: String,
+    thought: String?,
+    toolCalls: List<AcpSessionService.ToolCallInfo>
+): List<AcpSessionService.MessageEntry> = buildList {
+    thought?.takeIf { it.isNotEmpty() }?.let { add(AcpSessionService.MessageEntry.Thought(it)) }
+    toolCalls.forEach { add(AcpSessionService.MessageEntry.ToolCall(it)) }
+    content.takeIf { it.isNotEmpty() }?.let { add(AcpSessionService.MessageEntry.Content(it)) }
 }

@@ -1,6 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
 import com.agentclientprotocol.annotations.UnstableApi
+import com.agentclientprotocol.model.StopReason
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
@@ -66,12 +67,14 @@ class AcpChatViewPanel(
             combine(
                 sessionService.messages,
                 sessionService.isLoading,
-                sessionService.pendingPermissionRequests
-            ) { messages, isLoading, pendingPermissionRequests ->
+                sessionService.pendingPermissionRequests,
+                sessionService.lastStopReason
+            ) { messages, isLoading, pendingPermissionRequests, lastStopReason ->
                 ConversationViewState(
                     messages = messages,
                     isLoading = isLoading,
-                    pendingPermissionRequests = pendingPermissionRequests
+                    pendingPermissionRequests = pendingPermissionRequests,
+                    lastStopReason = lastStopReason
                 )
             }.distinctUntilChanged().collectLatest { state ->
                 render(state)
@@ -87,37 +90,38 @@ class AcpChatViewPanel(
             }
 
             val shouldStickToBottom = isNearBottom()
+            val visibleMessages = state.messages.filter { it.hasRenderableContent() }
 
             expandedThoughts.retainAll(state.messages.map { it.id }.toSet())
             messagePanel.removeAll()
-            if (state.messages.isEmpty() && !state.isLoading) {
+            if (visibleMessages.isEmpty() && !state.isLoading) {
                 addMessageRow(createEmptyState(), 0, false)
                 addMessageSpacer(1)
             } else {
                 var rowIndex = 0
-                state.messages.forEach { message ->
+                val latestAssistantMessageId = visibleMessages.lastOrNull { it.role == "assistant" }?.id
+                visibleMessages.forEach { message ->
                     addMessageRow(
                         MessageCardPanel(
                             message = message,
+                            pendingPermissionRequests = state.pendingPermissionRequests,
+                            onPermissionSubmit = { requestId, optionId ->
+                                uiScope.launch {
+                                    sessionService.submitPermissionRequest(requestId, optionId)
+                                }
+                            },
+                            promptState = messagePromptState(
+                                message = message,
+                                latestAssistantMessageId = latestAssistantMessageId,
+                                isLoading = state.isLoading,
+                                lastStopReason = state.lastStopReason
+                            ),
                             thoughtExpanded = expandedThoughts.contains(message.id),
                             onThoughtToggled = { expanded ->
                                 if (expanded) {
                                     expandedThoughts.add(message.id)
                                 } else {
                                     expandedThoughts.remove(message.id)
-                                }
-                            }
-                        ),
-                        rowIndex++
-                    )
-                }
-                state.pendingPermissionRequests.forEach { request ->
-                    addMessageRow(
-                        PermissionRequestCardPanel(
-                            request = request,
-                            onSubmit = { optionId ->
-                                uiScope.launch {
-                                    sessionService.submitPermissionRequest(request.requestId, optionId)
                                 }
                             }
                         ),
@@ -131,7 +135,7 @@ class AcpChatViewPanel(
             messagePanel.repaint()
 
             if (shouldStickToBottom) {
-                scrollToBottom()
+                scrollToBottomAfterLayout()
             }
         }
     }
@@ -206,6 +210,16 @@ class AcpChatViewPanel(
         scrollBar.value = scrollBar.maximum
     }
 
+    private fun scrollToBottomAfterLayout() {
+        SwingUtilities.invokeLater {
+            messagePanel.revalidate()
+            messagePanel.repaint()
+            SwingUtilities.invokeLater {
+                scrollToBottom()
+            }
+        }
+    }
+
     override fun dispose() {
         uiScope.cancel()
     }
@@ -214,45 +228,106 @@ class AcpChatViewPanel(
 private data class ConversationViewState(
     val messages: List<AcpSessionService.ChatMessage>,
     val isLoading: Boolean,
-    val pendingPermissionRequests: List<AcpSessionService.PermissionRequestInfo>
+    val pendingPermissionRequests: List<AcpSessionService.PermissionRequestInfo>,
+    val lastStopReason: StopReason?
 )
+
+private fun AcpSessionService.ChatMessage.hasRenderableContent(): Boolean {
+    if (entries.isNotEmpty()) {
+        return true
+    }
+    if (content.isNotBlank()) {
+        return true
+    }
+    if (!thought.isNullOrBlank()) {
+        return true
+    }
+    return toolCalls.isNotEmpty()
+}
 
 private class MessageCardPanel(
     val message: AcpSessionService.ChatMessage,
+    pendingPermissionRequests: List<AcpSessionService.PermissionRequestInfo>,
+    private val onPermissionSubmit: (String, String) -> Unit,
+    promptState: MessagePromptState?,
     thoughtExpanded: Boolean,
     onThoughtToggled: (Boolean) -> Unit
 ) : JPanel() {
+    private val permissionRequestsById = pendingPermissionRequests.associateBy { it.requestId }
+
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     init {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        layout = BorderLayout(0, JBUI.scale(8))
         alignmentX = LEFT_ALIGNMENT
         isOpaque = true
         background = backgroundForRole(message.role)
         border = JBUI.Borders.empty(10)
 
-        add(
-            JBLabel(if (message.role == "user") "You" else "Assistant").apply {
-                foreground = UIUtil.getContextHelpForeground()
-                border = JBUI.Borders.emptyBottom(6)
-                alignmentX = LEFT_ALIGNMENT
-            }
-        )
+        add(createHeader(), BorderLayout.NORTH)
+        add(createBody(thoughtExpanded, onThoughtToggled), BorderLayout.CENTER)
+        promptState?.let { add(createFooter(it), BorderLayout.SOUTH) }
+    }
 
-        if (!message.thought.isNullOrBlank()) {
-            add(ThoughtPanel(message.thought, thoughtExpanded, onThoughtToggled))
-            add(Box.createVerticalStrut(JBUI.scale(8)))
+    private fun createHeader(): JComponent {
+        return JBLabel(if (message.role == "user") "You" else "Assistant").apply {
+            foreground = UIUtil.getContextHelpForeground()
+            alignmentX = LEFT_ALIGNMENT
         }
+    }
 
-        if (message.toolCalls.isNotEmpty()) {
-            add(ToolCallListPanel(message.toolCalls))
-            if (message.content.isNotBlank()) {
-                add(Box.createVerticalStrut(JBUI.scale(8)))
+    private fun createBody(
+        thoughtExpanded: Boolean,
+        onThoughtToggled: (Boolean) -> Unit
+    ): JComponent {
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            alignmentX = LEFT_ALIGNMENT
+            isOpaque = false
+
+            val entries = message.entries.ifEmpty {
+                buildList {
+                    message.thought?.takeIf { it.isNotBlank() }?.let {
+                        add(AcpSessionService.MessageEntry.Thought(it))
+                    }
+                    message.toolCalls.forEach { add(AcpSessionService.MessageEntry.ToolCall(it)) }
+                    message.content.takeIf { it.isNotBlank() }?.let {
+                        add(AcpSessionService.MessageEntry.Content(it))
+                    }
+                }
+            }
+
+            entries.forEachIndexed { index, entry ->
+                when (entry) {
+                    is AcpSessionService.MessageEntry.Content -> add(MarkdownPane(entry.text))
+                    is AcpSessionService.MessageEntry.PermissionRequest -> {
+                        val request = permissionRequestsById[entry.request.requestId] ?: entry.request
+                        add(
+                            PermissionRequestCardPanel(
+                                request = request,
+                                onSubmit = { optionId ->
+                                    onPermissionSubmit(request.requestId, optionId)
+                                }
+                            )
+                        )
+                    }
+                    is AcpSessionService.MessageEntry.Thought ->
+                        add(ThoughtPanel(entry.text, thoughtExpanded, onThoughtToggled))
+                    is AcpSessionService.MessageEntry.ToolCall ->
+                        add(ToolCallRow(entry.toolCall))
+                }
+
+                if (index != entries.lastIndex) {
+                    add(Box.createVerticalStrut(JBUI.scale(8)))
+                }
             }
         }
+    }
 
-        if (message.content.isNotBlank()) {
-            add(MarkdownPane(message.content))
+    private fun createFooter(promptState: MessagePromptState): JComponent {
+        return JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(MessagePromptStatusIcon(promptState), BorderLayout.EAST)
         }
     }
 
@@ -367,6 +442,50 @@ private class ToolCallRow(toolCall: AcpSessionService.ToolCallInfo) : JPanel() {
                 )
             }
         }
+    }
+}
+
+private enum class MessagePromptState {
+    RUNNING,
+    COMPLETED,
+    WARNING
+}
+
+private class MessagePromptStatusIcon(state: MessagePromptState) : JBLabel() {
+    private val animatedIcons = arrayOf(
+        AllIcons.Process.Step_1,
+        AllIcons.Process.Step_2,
+        AllIcons.Process.Step_3,
+        AllIcons.Process.Step_4,
+        AllIcons.Process.Step_5,
+        AllIcons.Process.Step_6,
+        AllIcons.Process.Step_7,
+        AllIcons.Process.Step_8
+    )
+    private val iconAnimator = JBAnimator().apply {
+        period = 60
+        isCyclic = true
+        type = JBAnimator.Type.EACH_FRAME
+    }
+
+    init {
+        isOpaque = false
+        icon = when (state) {
+            MessagePromptState.RUNNING -> AllIcons.Process.Step_1
+            MessagePromptState.COMPLETED -> AllIcons.General.InspectionsOK
+            MessagePromptState.WARNING -> AllIcons.General.Warning
+        }
+        if (state == MessagePromptState.RUNNING) {
+            iconAnimator.animate(animation(animatedIcons, ::setIcon).apply {
+                duration = iconAnimator.period * animatedIcons.size
+                easing = Easing.LINEAR
+            })
+        }
+    }
+
+    override fun removeNotify() {
+        iconAnimator.stop()
+        super.removeNotify()
     }
 }
 
@@ -594,4 +713,26 @@ private fun buildPermissionOptionLabel(option: AcpSessionService.PermissionOptio
         option.kind?.takeIf { it.isNotBlank() }?.let { add(it.replace('_', ' ')) }
     }
     return parts.joinToString(" • ")
+}
+
+private fun messagePromptState(
+    message: AcpSessionService.ChatMessage,
+    latestAssistantMessageId: String?,
+    isLoading: Boolean,
+    lastStopReason: StopReason?
+): MessagePromptState? {
+    if (message.role != "assistant" || message.id != latestAssistantMessageId) {
+        return null
+    }
+    if (isLoading) {
+        return MessagePromptState.RUNNING
+    }
+    return when (lastStopReason) {
+        null -> null
+        StopReason.END_TURN -> MessagePromptState.COMPLETED
+        StopReason.CANCELLED,
+        StopReason.MAX_TOKENS,
+        StopReason.MAX_TURN_REQUESTS,
+        StopReason.REFUSAL -> MessagePromptState.WARNING
+    }
 }

@@ -57,6 +57,13 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertEquals("assistant", message.role)
         assertEquals("thinking", message.thought)
         assertEquals("answer", message.content)
+        assertEquals(
+            listOf(
+                AcpSessionService.MessageEntry.Thought("thinking"),
+                AcpSessionService.MessageEntry.Content("answer")
+            ),
+            message.entries
+        )
     }
 
     fun testToolCallAttachesToCurrentAssistantMessageAndUpdatesStatus() {
@@ -86,6 +93,7 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertEquals("in_progress", toolCall.status)
         assertEquals(listOf("src/Main.kt:12"), toolCall.locations)
         assertEquals("Terminal: term-1", toolCall.contentSummary)
+        assertTrue(messages.single().entries.any { it is AcpSessionService.MessageEntry.ToolCall })
     }
 
     fun testNonTextContentProducesVisiblePlaceholder() {
@@ -208,6 +216,8 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertFalse(request.submitted)
         assertEquals(2, request.options.size)
         assertEquals("Allow once", request.options.first().label)
+        val embeddedRequest = service.messages.value.last().entries.last() as AcpSessionService.MessageEntry.PermissionRequest
+        assertEquals(request.requestId, embeddedRequest.request.requestId)
 
         assertTrue(service.submitPermissionRequest(request.requestId, "reject-once"))
 
@@ -218,6 +228,10 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         val updatedRequest = service.pendingPermissionRequests.value.single()
         assertEquals("reject-once", updatedRequest.selectedOptionId)
         assertTrue(updatedRequest.submitted)
+        val updatedEmbeddedRequest =
+            service.messages.value.last().entries.last() as AcpSessionService.MessageEntry.PermissionRequest
+        assertEquals("reject-once", updatedEmbeddedRequest.request.selectedOptionId)
+        assertTrue(updatedEmbeddedRequest.request.submitted)
 
         val response = deferredResponse.await()
         val outcome = response.outcome as RequestPermissionOutcome.Selected

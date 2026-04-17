@@ -49,6 +49,9 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
                 arrayOf(
                     AcpSessionService.ChatMessage::class.java,
+                    List::class.java,
+                    Function2::class.java,
+                    Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
                     java.lang.Boolean.TYPE,
                     Function1::class.java
                 ),
@@ -60,6 +63,9 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                         thought = "thinking",
                         toolCalls = emptyList()
                     ),
+                    emptyList<AcpSessionService.PermissionRequestInfo>(),
+                    { _: String, _: String -> },
+                    null,
                     false,
                     { _: Boolean -> }
                 )
@@ -138,11 +144,17 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
             arrayOf(
                 AcpSessionService.ChatMessage::class.java,
+                List::class.java,
+                Function2::class.java,
+                Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
                 java.lang.Boolean.TYPE,
                 Function1::class.java
             ),
             arrayOf(
                 message,
+                emptyList<AcpSessionService.PermissionRequestInfo>(),
+                { _: String, _: String -> },
+                null,
                 false,
                 { _: Boolean -> }
             )
@@ -264,11 +276,17 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
             arrayOf(
                 AcpSessionService.ChatMessage::class.java,
+                List::class.java,
+                Function2::class.java,
+                Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
                 java.lang.Boolean.TYPE,
                 Function1::class.java
             ),
             arrayOf(
                 message,
+                emptyList<AcpSessionService.PermissionRequestInfo>(),
+                { _: String, _: String -> },
+                null,
                 false,
                 { _: Boolean -> }
             )
@@ -300,6 +318,55 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertTrue(permissionCard.border is EmptyBorder)
     }
 
+    fun testAssistantPromptStatusUsesAnimatedRunningIcon() {
+        val card = instantiateMessageCard(
+            AcpSessionService.ChatMessage(
+                id = "assistant-running",
+                role = "assistant",
+                content = "Working on it"
+            ),
+            messagePromptState("RUNNING")
+        )
+
+        val statusIcon = findByClassName(card, "MessagePromptStatusIcon") as JBLabel
+        val animatorField = statusIcon.javaClass.getDeclaredField("iconAnimator").apply {
+            isAccessible = true
+        }
+
+        assertEquals(AllIcons.Process.Step_1, statusIcon.icon)
+        assertNotNull(animatorField.get(statusIcon))
+    }
+
+    fun testAssistantPromptStatusUsesCompletedIconForEndTurn() {
+        val card = instantiateMessageCard(
+            AcpSessionService.ChatMessage(
+                id = "assistant-complete",
+                role = "assistant",
+                content = "Done"
+            ),
+            messagePromptState("COMPLETED")
+        )
+
+        val statusIcon = findByClassName(card, "MessagePromptStatusIcon") as JBLabel
+
+        assertEquals(AllIcons.General.InspectionsOK, statusIcon.icon)
+    }
+
+    fun testAssistantPromptStatusUsesWarningIconForNonEndTurnStopReason() {
+        val card = instantiateMessageCard(
+            AcpSessionService.ChatMessage(
+                id = "assistant-warning",
+                role = "assistant",
+                content = "Stopped"
+            ),
+            messagePromptState("WARNING")
+        )
+
+        val statusIcon = findByClassName(card, "MessagePromptStatusIcon") as JBLabel
+
+        assertEquals(AllIcons.General.Warning, statusIcon.icon)
+    }
+
     private fun instantiateToolCallRow(toolCall: AcpSessionService.ToolCallInfo): javax.swing.JComponent {
         return instantiatePrivatePanel(
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.ToolCallRow",
@@ -308,10 +375,41 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         )
     }
 
+    private fun instantiateMessageCard(
+        message: AcpSessionService.ChatMessage,
+        promptState: Any?
+    ): javax.swing.JComponent {
+        return instantiatePrivatePanel(
+            "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
+            arrayOf(
+                AcpSessionService.ChatMessage::class.java,
+                List::class.java,
+                Function2::class.java,
+                Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
+                java.lang.Boolean.TYPE,
+                Function1::class.java
+            ),
+            arrayOf(
+                message,
+                emptyList<AcpSessionService.PermissionRequestInfo>(),
+                { _: String, _: String -> },
+                promptState,
+                false,
+                { _: Boolean -> }
+            )
+        )
+    }
+
+    private fun messagePromptState(name: String): Any {
+        val promptStateClass = Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState")
+        val valueOf = promptStateClass.getDeclaredMethod("valueOf", String::class.java)
+        return valueOf.invoke(null, name)
+    }
+
     private fun instantiatePrivatePanel(
         className: String,
         parameterTypes: Array<Class<*>>,
-        args: Array<Any>
+        args: Array<Any?>
     ): javax.swing.JComponent {
         val constructor: Constructor<*> = Class.forName(className).getDeclaredConstructor(*parameterTypes).apply {
             isAccessible = true
