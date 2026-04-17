@@ -92,6 +92,7 @@ class AcpChatViewPanel(
             messagePanel.removeAll()
             if (state.messages.isEmpty() && !state.isLoading) {
                 addMessageRow(createEmptyState(), 0, false)
+                addMessageSpacer(1)
             } else {
                 var rowIndex = 0
                 state.messages.forEach { message ->
@@ -167,17 +168,31 @@ class AcpChatViewPanel(
     }
 
     private fun createEmptyState(): JComponent {
-        return JPanel(BorderLayout()).apply {
-            isOpaque = false
-            border = JBUI.Borders.empty(24, 4)
+        val base = UIUtil.getPanelBackground()
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = true
+            background = JBColor(
+                ColorUtil.mix(base, JBColor(0xF5F7FA, 0x2F3338), 0.92),
+                ColorUtil.mix(base, JBColor(0xF5F7FA, 0x2F3338), 0.82)
+            )
+            border = JBUI.Borders.empty(16)
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+            alignmentX = LEFT_ALIGNMENT
+
+            add(
+                JBLabel("No conversation yet").apply {
+                    foreground = UIUtil.getLabelForeground()
+                    border = JBUI.Borders.emptyBottom(6)
+                    alignmentX = LEFT_ALIGNMENT
+                }
+            )
             add(
                 JBLabel("Start a conversation to see ACP messages here.").apply {
                     foreground = UIUtil.getContextHelpForeground()
-                },
-                BorderLayout.WEST
+                    alignmentX = LEFT_ALIGNMENT
+                }
             )
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
-            alignmentX = LEFT_ALIGNMENT
         }
     }
 
