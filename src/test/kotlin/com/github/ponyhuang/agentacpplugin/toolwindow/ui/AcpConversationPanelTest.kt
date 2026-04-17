@@ -1,11 +1,15 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
+import com.intellij.icons.AllIcons
+import com.intellij.ui.components.JBLabel
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import java.lang.reflect.Constructor
 import javax.swing.JButton
 import javax.swing.JRadioButton
-import java.lang.reflect.Constructor
+import javax.swing.border.CompoundBorder
+import javax.swing.border.EmptyBorder
 
 class AcpConversationPanelTest : BasePlatformTestCase() {
 
@@ -108,6 +112,110 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertTrue(radios.first().isSelected)
         assertEquals("Submit", buttons.single().text)
         assertTrue(buttons.single().isEnabled)
+    }
+
+    fun testToolCallRowUsesEmojiTitleAndStaticStatusIcon() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-1",
+                title = "Read file",
+                status = "completed",
+                kind = "read"
+            )
+        )
+
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "📖 Read Read file" }
+        val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
+
+        assertNotNull(titleLabel)
+        assertEquals(AllIcons.General.InspectionsOK, statusIcon.icon)
+        assertTrue(row.border is EmptyBorder)
+        assertFalse(row.border is CompoundBorder)
+    }
+
+    fun testToolCallRowUsesAnimatedRunningStatusIcon() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-2",
+                title = "Search workspace",
+                status = "in_progress",
+                kind = "search"
+            )
+        )
+
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "🔍 Search Search workspace" }
+        val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
+        val animatorField = statusIcon.javaClass.getDeclaredField("iconAnimator").apply {
+            isAccessible = true
+        }
+
+        assertNotNull(titleLabel)
+        assertEquals(AllIcons.Process.Step_1, statusIcon.icon)
+        assertNotNull(animatorField.get(statusIcon))
+    }
+
+    fun testVisualPanelsKeepOnlyEmptyBorders() {
+        val message = AcpSessionService.ChatMessage(
+            id = "assistant-2",
+            role = "assistant",
+            content = "Body",
+            thought = "thinking",
+            toolCalls = listOf(
+                AcpSessionService.ToolCallInfo(
+                    toolCallId = "tool-3",
+                    title = "Fetch docs",
+                    status = "pending",
+                    kind = "fetch"
+                )
+            )
+        )
+
+        val messageCard = instantiatePrivatePanel(
+            "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
+            arrayOf(
+                AcpSessionService.ChatMessage::class.java,
+                java.lang.Boolean.TYPE,
+                Function1::class.java
+            ),
+            arrayOf(
+                message,
+                false,
+                { _: Boolean -> }
+            )
+        )
+        val thoughtPanel = findByClassName(messageCard, "ThoughtPanel") as javax.swing.JComponent
+        val toolRow = findByClassName(messageCard, "ToolCallRow") as javax.swing.JComponent
+        val permissionCard = instantiatePrivatePanel(
+            "com.github.ponyhuang.agentacpplugin.toolwindow.ui.PermissionRequestCardPanel",
+            arrayOf(
+                AcpSessionService.PermissionRequestInfo::class.java,
+                Function1::class.java
+            ),
+            arrayOf(
+                AcpSessionService.PermissionRequestInfo(
+                    requestId = "request-2",
+                    toolCallId = "tool-3",
+                    title = "Confirm",
+                    options = emptyList(),
+                    selectedOptionId = null,
+                    submitted = false
+                ),
+                { _: String -> }
+            )
+        )
+
+        assertTrue(messageCard.border is EmptyBorder)
+        assertTrue(thoughtPanel.border is EmptyBorder)
+        assertTrue(toolRow.border is EmptyBorder)
+        assertTrue(permissionCard.border is EmptyBorder)
+    }
+
+    private fun instantiateToolCallRow(toolCall: AcpSessionService.ToolCallInfo): javax.swing.JComponent {
+        return instantiatePrivatePanel(
+            "com.github.ponyhuang.agentacpplugin.toolwindow.ui.ToolCallRow",
+            arrayOf(AcpSessionService.ToolCallInfo::class.java),
+            arrayOf(toolCall)
+        )
     }
 
     private fun instantiatePrivatePanel(

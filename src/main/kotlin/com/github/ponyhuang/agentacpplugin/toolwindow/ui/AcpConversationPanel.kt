@@ -3,6 +3,7 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 import com.agentclientprotocol.annotations.UnstableApi
 import com.agentclientprotocol.model.StopReason
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
@@ -13,6 +14,9 @@ import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.panels.VerticalLayout
+import com.intellij.util.animation.Easing
+import com.intellij.util.animation.JBAnimator
+import com.intellij.util.animation.animation
 import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -33,7 +37,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.swing.ButtonGroup
-import javax.swing.BorderFactory
+import javax.swing.Icon
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
@@ -200,10 +204,7 @@ class AcpConversationPanel(
         return JPanel(BorderLayout()).apply {
             isOpaque = true
             background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.compound(
-                JBUI.Borders.customLine(JBColor.border(), 1, 1, 1, 1),
-                JBUI.Borders.empty(8, 10)
-            )
+            border = JBUI.Borders.empty(8, 10)
             add(
                 JBLabel("Thinking...").apply {
                     foreground = UIUtil.getContextHelpForeground()
@@ -266,10 +267,7 @@ private class SessionStatusPanel(
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         isOpaque = true
         background = UIUtil.getPanelBackground()
-        border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(JBColor.border(), 0, 0, 1, 0),
-            JBUI.Borders.empty(8)
-        )
+        border = JBUI.Borders.empty(8)
 
         val header = JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
             isOpaque = false
@@ -351,10 +349,7 @@ private class PlanEntryRow(item: AcpSessionService.SessionPlanItem) : JPanel() {
         layout = BorderLayout(JBUI.scale(8), 0)
         isOpaque = true
         background = UIUtil.getPanelBackground()
-        border = BorderFactory.createCompoundBorder(
-            JBUI.Borders.customLine(priorityColor(item.priority), 1, 3, 1, 1),
-            JBUI.Borders.empty(6, 8)
-        )
+        border = JBUI.Borders.empty(6, 8)
         maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
 
         add(
@@ -364,9 +359,7 @@ private class PlanEntryRow(item: AcpSessionService.SessionPlanItem) : JPanel() {
             BorderLayout.CENTER
         )
         add(
-            JBLabel(item.status.toDisplayLabel()).apply {
-                foreground = statusColor(item.status)
-            },
+            JBLabel(item.status.toDisplayLabel()),
             BorderLayout.EAST
         )
     }
@@ -406,10 +399,7 @@ private class MessageCardPanel(
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         isOpaque = true
         background = backgroundForRole(message.role)
-        border = BorderFactory.createCompoundBorder(
-            JBUI.Borders.customLine(JBColor.border(), 1),
-            JBUI.Borders.empty(10)
-        )
+        border = JBUI.Borders.empty(10)
 
         add(
             JBLabel(if (message.role == "user") "You" else "Assistant").apply {
@@ -465,10 +455,7 @@ private class ThoughtPanel(
         layout = BorderLayout(0, JBUI.scale(6))
         isOpaque = true
         background = UIUtil.getPanelBackground()
-        border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(JBColor.border(), 1),
-            JBUI.Borders.empty(6, 8)
-        )
+        border = JBUI.Borders.empty(6, 8)
 
         val toggle = ActionLink(if (expanded) "Hide Thinking" else "Show Thinking").apply {
             addActionListener {
@@ -510,24 +497,19 @@ private class ToolCallRow(toolCall: AcpSessionService.ToolCallInfo) : JPanel() {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         isOpaque = true
         background = UIUtil.getPanelBackground()
-        border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(statusColor(toolCall.status), 1, 3, 1, 1),
-            JBUI.Borders.empty(6, 8)
-        )
+        border = JBUI.Borders.empty(6, 8)
 
         add(
             JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
                 isOpaque = false
                 add(
-                    JBLabel("${kindLabel(toolCall.kind)} ${toolCall.title}").apply {
+                    JBLabel("${toolKindDisplay(toolCall.kind)} ${toolCall.title}").apply {
                         foreground = UIUtil.getLabelForeground()
                     },
                     BorderLayout.WEST
                 )
                 add(
-                    JBLabel(toolCall.status.toDisplayLabel()).apply {
-                        foreground = statusColor(toolCall.status)
-                    },
+                    ToolStatusLabel(toolCall.status),
                     BorderLayout.EAST
                 )
                 alignmentX = LEFT_ALIGNMENT
@@ -567,10 +549,7 @@ private class PermissionRequestCardPanel(
             ColorUtil.mix(UIUtil.getPanelBackground(), JBColor(0xFFF1CF, 0x54452A), 0.75),
             ColorUtil.mix(UIUtil.getPanelBackground(), JBColor(0xFFF1CF, 0x54452A), 0.45)
         )
-        border = BorderFactory.createCompoundBorder(
-            JBUI.Borders.customLine(JBColor(0xD39E00, 0xF2C46F), 1, 3, 1, 1),
-            JBUI.Borders.empty(10)
-        )
+        border = JBUI.Borders.empty(10)
 
         add(
             JBLabel("Permission Request").apply {
@@ -663,6 +642,70 @@ private fun renderHtml(text: String): String {
     return HtmlGenerator(text, parsedTree, markdownFlavour).generateHtml()
 }
 
+private class ToolStatusLabel(status: String) : JPanel(BorderLayout(JBUI.scale(4), 0)) {
+    private val statusIcon = ToolStatusIcon(status)
+    private val statusText = JBLabel(status.toDisplayLabel()).apply {
+        foreground = UIUtil.getContextHelpForeground()
+    }
+
+    init {
+        isOpaque = false
+        add(statusText, BorderLayout.WEST)
+        add(statusIcon, BorderLayout.EAST)
+    }
+}
+
+private class ToolStatusIcon(status: String) : JBLabel() {
+    private val animatedIcons = arrayOf(
+        AllIcons.Process.Step_1,
+        AllIcons.Process.Step_2,
+        AllIcons.Process.Step_3,
+        AllIcons.Process.Step_4,
+        AllIcons.Process.Step_5,
+        AllIcons.Process.Step_6,
+        AllIcons.Process.Step_7,
+        AllIcons.Process.Step_8
+    )
+    private val iconAnimator = JBAnimator().apply {
+        period = 60
+        isCyclic = true
+        type = JBAnimator.Type.EACH_FRAME
+    }
+
+    init {
+        isOpaque = false
+        border = JBUI.Borders.emptyLeft(4)
+        icon = statusIconFor(status)
+        if (status == "in_progress") {
+            iconAnimator.animate(animation(animatedIcons, ::setIcon).apply {
+                duration = iconAnimator.period * animatedIcons.size
+                easing = Easing.LINEAR
+            })
+        }
+    }
+
+    override fun removeNotify() {
+        iconAnimator.stop()
+        super.removeNotify()
+    }
+}
+
+private fun toolKindDisplay(kind: String?): String {
+    val emoji = when (kind) {
+        "read" -> "\uD83D\uDCD6"
+        "edit" -> "\u270F\uFE0F"
+        "delete" -> "\uD83D\uDDD1\uFE0F"
+        "move" -> "\uD83D\uDCE6"
+        "search" -> "\uD83D\uDD0D"
+        "execute" -> "\u25B6\uFE0F"
+        "think" -> "\uD83E\uDDE0"
+        "fetch" -> "\uD83C\uDF10"
+        "switch_mode" -> "\uD83D\uDD00"
+        else -> "\uD83D\uDD27"
+    }
+    return "$emoji ${kindLabel(kind)}"
+}
+
 private fun kindLabel(kind: String?): String {
     return when (kind) {
         "read" -> "Read"
@@ -678,13 +721,13 @@ private fun kindLabel(kind: String?): String {
     }
 }
 
-private fun statusColor(status: String): Color {
+private fun statusIconFor(status: String): Icon {
     return when (status) {
-        "pending" -> JBColor(0xA15C00, 0xF2C46F)
-        "in_progress" -> JBColor(0x0B65C2, 0x73B7FF)
-        "completed" -> JBColor(0x2B7A0B, 0x6FCF5D)
-        "failed" -> JBColor(0xC0392B, 0xFF8A80)
-        else -> UIUtil.getContextHelpForeground()
+        "pending" -> AllIcons.Process.Step_passive
+        "in_progress" -> AllIcons.Process.Step_1
+        "completed" -> AllIcons.General.InspectionsOK
+        "failed" -> AllIcons.General.Error
+        else -> AllIcons.General.Information
     }
 }
 
@@ -728,13 +771,4 @@ private fun buildPermissionOptionLabel(option: AcpSessionService.PermissionOptio
         option.kind?.takeIf { it.isNotBlank() }?.let { add(it.replace('_', ' ')) }
     }
     return parts.joinToString(" • ")
-}
-
-private fun priorityColor(priority: String): Color {
-    return when (priority) {
-        "high" -> JBColor(0xC0392B, 0xFF8A80)
-        "medium" -> JBColor(0xA15C00, 0xF2C46F)
-        "low" -> JBColor(0x2B7A0B, 0x6FCF5D)
-        else -> JBColor.border()
-    }
 }
