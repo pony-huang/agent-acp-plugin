@@ -16,10 +16,21 @@ import java.awt.Dimension
 import java.awt.Point
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.*
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JComponent
+import javax.swing.JPanel
+import javax.swing.Timer
 
 class PlanEntriesPanel : JPanel(BorderLayout()) {
 
+    private val headerPanel = JPanel(BorderLayout(JBUI.scale(16), 0)).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(8)
+    }
+    private val planSummaryPanel = JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
+        isOpaque = false
+    }
     private val titleLabel = JBLabel("Latest Plan")
     private val countLabel = JBLabel().apply {
         foreground = UIUtil.getContextHelpForeground()
@@ -27,15 +38,18 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
     private val summaryLabel = JBLabel().apply {
         foreground = UIUtil.getLabelForeground()
     }
+    private val usageLabel = JBLabel().apply {
+        foreground = UIUtil.getContextHelpForeground()
+    }
 
     private var entries: List<AcpSessionService.SessionPlanItem> = emptyList()
+    private var latestUsage: AcpSessionService.SessionUsageSummary? = null
     private var popup: JBPopup? = null
-    private var popupContent: JComponent? = null
-    private var isHoveringPanel = false
+    private var isHoveringPlanPanel = false
     private var isHoveringPopup = false
 
     private val showPopupTimer = Timer(200) {
-        if (isHoveringPanel && entries.isNotEmpty()) {
+        if (isHoveringPlanPanel && entries.isNotEmpty()) {
             showPopup()
         }
     }.apply {
@@ -43,7 +57,7 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
     }
 
     private val hidePopupTimer = Timer(250) {
-        if (!isHoveringPanel && !isHoveringPopup) {
+        if (!isHoveringPlanPanel && !isHoveringPopup) {
             hidePopup()
         }
     }.apply {
@@ -58,9 +72,26 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
         )
         border = JBUI.Borders.empty(0, 0, 4, 0)
 
-        add(createHeader(), BorderLayout.CENTER)
-        addMouseListener(createHoverMouseListener())
-        addMouseMotionListener(createHoverMouseListener())
+        val titlePanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            isOpaque = false
+            add(titleLabel)
+            add(Box.createHorizontalStrut(JBUI.scale(8)))
+            add(countLabel)
+        }
+        planSummaryPanel.add(titlePanel, BorderLayout.WEST)
+        planSummaryPanel.add(summaryLabel, BorderLayout.CENTER)
+
+        headerPanel.add(planSummaryPanel, BorderLayout.CENTER)
+        headerPanel.add(usageLabel, BorderLayout.EAST)
+        add(headerPanel, BorderLayout.CENTER)
+
+        val hoverListener = createHoverMouseListener()
+        listOf(planSummaryPanel, titleLabel, countLabel, summaryLabel).forEach { component ->
+            component.addMouseListener(hoverListener)
+            component.addMouseMotionListener(hoverListener)
+        }
+
         refreshUi()
     }
 
@@ -72,12 +103,19 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
             return
         }
 
-        if (popup?.isVisible == true && (isHoveringPanel || isHoveringPopup)) {
+        if (popup?.isVisible == true && (isHoveringPlanPanel || isHoveringPopup)) {
             showPopup()
         }
     }
 
+    fun updateLatestUsage(usage: AcpSessionService.SessionUsageSummary?) {
+        latestUsage = usage
+        refreshUi()
+    }
+
     fun hasEntries(): Boolean = entries.isNotEmpty()
+
+    fun hasUsage(): Boolean = latestUsage != null
 
     fun popupIsVisible(): Boolean = popup?.isVisible == true
 
@@ -88,29 +126,15 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
         super.removeNotify()
     }
 
-    private fun createHeader(): JComponent {
-        return JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
-            isOpaque = false
-            border = JBUI.Borders.empty(8)
-            add(
-                JPanel().apply {
-                    layout = BoxLayout(this, BoxLayout.X_AXIS)
-                    isOpaque = false
-                    add(titleLabel)
-                    add(Box.createHorizontalStrut(JBUI.scale(8)))
-                    add(countLabel)
-                },
-                BorderLayout.WEST
-            )
-            add(summaryLabel, BorderLayout.CENTER)
-        }
-    }
-
     private fun refreshUi() {
         countLabel.text = if (entries.isEmpty()) "" else "${entries.size} items"
         summaryLabel.text = currentSummaryEntry()?.content.orEmpty()
-        toolTipText = if (entries.isEmpty()) null else "Hover to preview the latest plan"
-        isVisible = entries.isNotEmpty()
+        usageLabel.text = latestUsage?.let(::formatUsageSummary).orEmpty()
+
+        planSummaryPanel.isVisible = entries.isNotEmpty()
+        usageLabel.isVisible = latestUsage != null
+        planSummaryPanel.toolTipText = if (entries.isEmpty()) null else "Hover to preview the latest plan"
+        isVisible = entries.isNotEmpty() || latestUsage != null
         revalidate()
         repaint()
     }
@@ -121,10 +145,24 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
             ?: entries.firstOrNull()
     }
 
+    private fun formatUsageSummary(usage: AcpSessionService.SessionUsageSummary): String {
+        val tokenSummary = "Tokens ${usage.usedTokens}/${usage.totalTokens}"
+        val costSummary = usage.costAmount?.let { amount ->
+            buildString {
+                append("Cost ")
+                append(amount)
+                usage.costCurrency?.takeIf { it.isNotBlank() }?.let { currency ->
+                    append(' ')
+                    append(currency)
+                }
+            }
+        }
+        return listOfNotNull(tokenSummary, costSummary).joinToString("  ")
+    }
+
     private fun showPopup() {
         hidePopup()
         val content = createPopupContent()
-        popupContent = content
         popup = JBPopupFactory.getInstance()
             .createComponentPopupBuilder(content, null)
             .setRequestFocus(false)
@@ -135,14 +173,13 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
             .setCancelOnOtherWindowOpen(true)
             .createPopup()
 
-        val location = Point(0, height)
-        popup?.show(RelativePoint(this, location))
+        val location = Point(0, planSummaryPanel.height)
+        popup?.show(RelativePoint(planSummaryPanel, location))
     }
 
     private fun hidePopup() {
         popup?.cancel()
         popup = null
-        popupContent = null
         isHoveringPopup = false
     }
 
@@ -189,7 +226,7 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
                 if (entries.isEmpty()) {
                     return
                 }
-                isHoveringPanel = true
+                isHoveringPlanPanel = true
                 hidePopupTimer.stop()
                 if (popup?.isVisible != true) {
                     showPopupTimer.restart()
@@ -197,7 +234,7 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
             }
 
             override fun mouseExited(e: MouseEvent) {
-                isHoveringPanel = false
+                isHoveringPlanPanel = false
                 showPopupTimer.stop()
                 scheduleHidePopup()
             }

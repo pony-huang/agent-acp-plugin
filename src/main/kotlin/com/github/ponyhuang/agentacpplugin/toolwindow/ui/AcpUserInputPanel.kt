@@ -5,7 +5,6 @@ import com.agentclientprotocol.model.ModelInfo
 import com.agentclientprotocol.model.SessionMode
 import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
 import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
-import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.github.ponyhuang.agentacpplugin.toolwindow.ToolWindowComposerState
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.ModelComboBoxAction
@@ -21,7 +20,6 @@ import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.awt.RelativePoint
-import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
@@ -200,28 +198,10 @@ class AcpUserInputPanel(
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
     }
 
-    private val usageLabel = JBLabel().apply {
-        isVisible = false
-        foreground = JBColor.GRAY
-        border = JBUI.Borders.emptyBottom(4)
-    }
-
-    var top = panel {
-        row {
-            cell(usageLabel).align(AlignX.LEFT)
-        }
-    }.apply {
-        isOpaque = false
-        background = EditorColorsManager.getInstance().globalScheme.defaultBackground
-        isVisible = false
-    }
-
-
     init {
         isOpaque = false
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
         border = JBUI.Borders.empty(4)
-        addToTop(top)
         addToCenter(userInputTextArea)
         addToBottom(bottom)
     }
@@ -283,15 +263,6 @@ class AcpUserInputPanel(
 
     fun clearInput() {
         userInputTextArea.text = ""
-    }
-
-    fun updateLatestUsage(usage: AcpSessionService.SessionUsageSummary?) {
-        val summary = usage?.let(::formatUsageSummary)
-        usageLabel.text = summary.orEmpty()
-        usageLabel.isVisible = summary != null
-        top.isVisible = summary != null
-        revalidate()
-        repaint()
     }
 
     fun selectedAgent(): AgentRegistry.AgentDefinition? =
@@ -451,21 +422,6 @@ class AcpUserInputPanel(
         userInputTextArea.caretPosition = userInputTextArea.text.length
         hideCommandPopup()
         userInputTextArea.requestFocusInWindow()
-    }
-
-    private fun formatUsageSummary(usage: AcpSessionService.SessionUsageSummary): String {
-        val tokenSummary = "Tokens ${usage.usedTokens}/${usage.totalTokens}"
-        val costSummary = usage.costAmount?.let { amount ->
-            buildString {
-                append("Cost ")
-                append(amount)
-                usage.costCurrency?.takeIf { it.isNotBlank() }?.let { currency ->
-                    append(' ')
-                    append(currency)
-                }
-            }
-        }
-        return listOfNotNull(tokenSummary, costSummary).joinToString("  ")
     }
 
     override fun paintComponent(g: Graphics) {

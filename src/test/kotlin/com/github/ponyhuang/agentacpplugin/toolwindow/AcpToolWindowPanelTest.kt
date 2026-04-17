@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow
 
+import com.agentclientprotocol.model.Cost
 import com.agentclientprotocol.model.PlanEntry
 import com.agentclientprotocol.model.PlanEntryPriority
 import com.agentclientprotocol.model.PlanEntryStatus
@@ -66,6 +67,31 @@ class AcpToolWindowPanelTest : BasePlatformTestCase() {
 
             assertTrue(planEntriesPanel.isVisible)
             assertTrue(planEntriesPanel.hasEntries())
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testToolWindowPanelShowsTopPanelWhenOnlyUsageExists() {
+        val disposable = Disposer.newDisposable()
+        try {
+            val panel = AcpToolWindowPanel(project, disposable)
+            val sessionService = project.getService(AcpSessionService::class.java)
+            val planEntriesPanel = readField<PlanEntriesPanel>(panel, "planEntriesPanel")
+
+            sessionService.applySessionUpdate(
+                SessionUpdate.UsageUpdate(
+                    used = 120,
+                    size = 800,
+                    cost = Cost(amount = 0.42, currency = "USD")
+                )
+            )
+
+            PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+
+            assertTrue(planEntriesPanel.isVisible)
+            assertFalse(planEntriesPanel.hasEntries())
+            assertTrue(planEntriesPanel.hasUsage())
         } finally {
             Disposer.dispose(disposable)
         }
@@ -138,6 +164,43 @@ class AcpToolWindowPanelTest : BasePlatformTestCase() {
             val layout = composerContainer.layout as BorderLayout
             assertFalse(planEntriesPanel.isVisible)
             assertSame(userInputPanel, layout.getLayoutComponent(BorderLayout.CENTER))
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testToolWindowPanelHidesTopPanelWhenPlanAndUsageAreCleared() {
+        val disposable = Disposer.newDisposable()
+        try {
+            val panel = AcpToolWindowPanel(project, disposable)
+            val sessionService = project.getService(AcpSessionService::class.java)
+            val planEntriesPanel = readField<PlanEntriesPanel>(panel, "planEntriesPanel")
+
+            sessionService.applySessionUpdate(
+                SessionUpdate.PlanUpdate(
+                    entries = listOf(
+                        PlanEntry(
+                            content = "Inspect files",
+                            priority = PlanEntryPriority.HIGH,
+                            status = PlanEntryStatus.IN_PROGRESS
+                        )
+                    )
+                )
+            )
+            sessionService.applySessionUpdate(
+                SessionUpdate.UsageUpdate(
+                    used = 120,
+                    size = 800,
+                    cost = null
+                )
+            )
+            sessionService.clearMessages()
+
+            PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+
+            assertFalse(planEntriesPanel.isVisible)
+            assertFalse(planEntriesPanel.hasEntries())
+            assertFalse(planEntriesPanel.hasUsage())
         } finally {
             Disposer.dispose(disposable)
         }

@@ -217,7 +217,7 @@ class AcpToolWindowPanel(
         uiScope.launch {
             sessionService.latestUsage.collectLatest { usage ->
                 runOnEdt {
-                    userInputPanel.updateLatestUsage(usage)
+                    updateLatestUsage(usage)
                 }
             }
         }
@@ -256,7 +256,12 @@ class AcpToolWindowPanel(
 
     private fun updatePlanEntries(entries: List<AcpSessionService.SessionPlanItem>) {
         planEntriesPanel.updatePlanEntries(entries)
-        planEntriesPanel.isVisible = entries.isNotEmpty()
+        composerContainer.revalidate()
+        composerContainer.repaint()
+    }
+
+    private fun updateLatestUsage(usage: AcpSessionService.SessionUsageSummary?) {
+        planEntriesPanel.updateLatestUsage(usage)
         composerContainer.revalidate()
         composerContainer.repaint()
     }
