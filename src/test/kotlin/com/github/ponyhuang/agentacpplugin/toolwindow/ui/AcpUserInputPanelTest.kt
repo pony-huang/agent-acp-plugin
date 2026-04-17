@@ -124,8 +124,23 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
         assertFalse(readComponent(panel, "agentComboBox").isEnabled)
         assertFalse(readComponent(panel, "planComboBox").isEnabled)
         assertFalse(readComponent(panel, "modelComboBox").isEnabled)
-        assertFalse(readComponent(panel, "connectionButton").isEnabled)
+        assertTrue(readComponent(panel, "connectionButton").isEnabled)
+        assertEquals("Interrupt", readButton(panel, "connectionButton").text)
         assertFalse(readComponent(panel, "sendButton").isEnabled)
+
+        panel.dispose()
+    }
+
+    fun testBusyConnectedStateUsesInterruptActionTooltip() {
+        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        panel.setSessionConnected(true)
+        panel.setBusy(ToolWindowComposerState.SENDING)
+
+        val connectionButton = readButton(panel, "connectionButton")
+
+        assertEquals("Interrupt", connectionButton.text)
+        assertEquals("Interrupt the current ACP prompt", connectionButton.toolTipText)
+        assertTrue(connectionButton.isEnabled)
 
         panel.dispose()
     }

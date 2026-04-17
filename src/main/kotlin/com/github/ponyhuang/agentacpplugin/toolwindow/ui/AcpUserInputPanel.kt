@@ -283,17 +283,22 @@ class AcpUserInputPanel(
 
     private fun updateControlStates() {
         val hasSelectedAgent = agentComboBoxAction.getSelectedAgent() != null
+        val canInterrupt = isSessionConnected && isBusy
         agentComboBox.isEnabled = !isBusy && !isSessionConnected
         planComboBox.isEnabled = isSessionConnected && !isBusy && planComboBoxAction.getSelectedPlan() != null
         modelComboBox.isEnabled = isSessionConnected && !isBusy && modelComboBoxAction.getSelectedModel() != null
         sendButton.isEnabled = isSessionConnected && !isBusy
-        connectionButton.isEnabled = !isBusy && (isSessionConnected || hasSelectedAgent)
-        connectionButton.text = if (isSessionConnected) "Disconnect" else "Connect"
+        connectionButton.isEnabled = canInterrupt || !isBusy && (isSessionConnected || hasSelectedAgent)
+        connectionButton.text = when {
+            canInterrupt -> "Interrupt"
+            isSessionConnected -> "Disconnect"
+            else -> "Connect"
+        }
         connectionButton.icon = if (isSessionConnected) AllIcons.Actions.Suspend else AllIcons.Actions.Execute
-        connectionButton.toolTipText = if (isSessionConnected) {
-            "Disconnect the current ACP session"
-        } else {
-            "Connect to the selected ACP agent"
+        connectionButton.toolTipText = when {
+            canInterrupt -> "Interrupt the current ACP prompt"
+            isSessionConnected -> "Disconnect the current ACP session"
+            else -> "Connect to the selected ACP agent"
         }
     }
 

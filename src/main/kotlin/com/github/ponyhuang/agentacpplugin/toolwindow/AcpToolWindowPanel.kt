@@ -107,7 +107,9 @@ class AcpToolWindowPanel(
         userInputPanel.onConnectionToggle = {
             uiScope.launch {
                 try {
-                    if (sessionService.isConnected.value) {
+                    if (sessionService.isConnected.value && sessionService.isLoading.value) {
+                        sessionService.cancel()
+                    } else if (sessionService.isConnected.value) {
                         sessionService.disconnect()
                         Notifications.Bus.notify(
                             Notification(
@@ -135,7 +137,9 @@ class AcpToolWindowPanel(
                     }
                 } catch (t: Throwable) {
                     logger.warn("Failed to toggle ACP session", t)
-                    val title = if (sessionService.isConnected.value) {
+                    val title = if (sessionService.isConnected.value && sessionService.isLoading.value) {
+                        "Failed to interrupt prompt"
+                    } else if (sessionService.isConnected.value) {
                         "Failed to disconnect"
                     } else {
                         "Failed to connect to ${userInputPanel.selectedAgent()?.displayName ?: "selected agent"}"
