@@ -19,7 +19,9 @@ import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.html.HtmlGenerator
 import org.intellij.markdown.parser.MarkdownParser
@@ -27,6 +29,7 @@ import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
+import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.*
 
 class AcpChatViewPanel(
@@ -37,6 +40,7 @@ class AcpChatViewPanel(
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionService = project.getService(AcpSessionService::class.java)
     private val expandedThoughts = linkedSetOf<String>()
+    private val renderVersion = AtomicInteger()
     private val messagePanel = JPanel().apply {
         layout = GridBagLayout()
         border = JBUI.Borders.empty(8, 4)
@@ -58,31 +62,30 @@ class AcpChatViewPanel(
 
     @OptIn(UnstableApi::class)
     private fun bind() {
-        listOf(
-            sessionService.messages,
-            sessionService.isLoading,
-            sessionService.pendingPermissionRequests
-        ).forEach { flow ->
-            uiScope.launch {
-                flow.collectLatest {
-                    renderFromState()
-                }
+        uiScope.launch {
+            combine(
+                sessionService.messages,
+                sessionService.isLoading,
+                sessionService.pendingPermissionRequests
+            ) { messages, isLoading, pendingPermissionRequests ->
+                ConversationViewState(
+                    messages = messages,
+                    isLoading = isLoading,
+                    pendingPermissionRequests = pendingPermissionRequests
+                )
+            }.distinctUntilChanged().collectLatest { state ->
+                render(state)
             }
         }
     }
 
-    @OptIn(UnstableApi::class)
-    private fun renderFromState() {
-        val state = ConversationViewState(
-            messages = sessionService.messages.value,
-            isLoading = sessionService.isLoading.value,
-            pendingPermissionRequests = sessionService.pendingPermissionRequests.value
-        )
-        render(state)
-    }
-
     private fun render(state: ConversationViewState) {
+        val requestedVersion = renderVersion.incrementAndGet()
         ApplicationManager.getApplication().invokeLater {
+            if (requestedVersion != renderVersion.get()) {
+                return@invokeLater
+            }
+
             val shouldStickToBottom = isNearBottom()
 
             expandedThoughts.retainAll(state.messages.map { it.id }.toSet())

@@ -378,6 +378,7 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     @OptIn(UnstableApi::class)
     private fun handleSessionUpdate(update: SessionUpdate) {
+        logger.info("[AcpSessionService] Received update: $update")
         when (update) {
             is SessionUpdate.UserMessageChunk -> handleUserMessageChunk(update)
             is SessionUpdate.AgentMessageChunk -> handleAgentMessageChunk(update)

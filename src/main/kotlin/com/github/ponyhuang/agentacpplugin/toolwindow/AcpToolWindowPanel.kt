@@ -23,6 +23,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import java.awt.Dimension
 import javax.swing.JPanel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,8 +40,6 @@ class AcpToolWindowPanel(
 ) : SimpleToolWindowPanel(true) {
     companion object {
         private const val DEFAULT_MAIN_SPLITTER_PROPORTION = 0.8f
-        private const val DEFAULT_PLAN_SPLITTER_PROPORTION = 0.45f
-        private const val COLLAPSED_PLAN_SPLITTER_PROPORTION = 0.18f
     }
 
     private val logger: Logger = Logger.getInstance(AcpToolWindowPanel::class.java)
@@ -82,35 +81,15 @@ class AcpToolWindowPanel(
         agentNotifier = agentNotifier,
         onModelChanged = { model -> logger.info("Model changed: ${model.id}") },
         onPlanChanged = { plan -> logger.info("Plan changed: ${plan.id}") }
-    )
-
-    private val controller = AcpBridge(
-        setComposerState = userInputPanel::setBusy,
-    )
-    private val planEntriesPanel: PlanEntriesPanel = PlanEntriesPanel(
-        onExpandedChanged = { expanded ->
-            if (!expanded) {
-                rememberedPlanSplitterProportion = composerSplitter.proportion
-            }
-            composerSplitter.proportion = if (expanded) {
-                rememberedPlanSplitterProportion
-            } else {
-                COLLAPSED_PLAN_SPLITTER_PROPORTION
-            }
-        }
-    )
-    private val composerSplitter: Splitter = Splitter(
-        true,
-        DEFAULT_PLAN_SPLITTER_PROPORTION
     ).apply {
-        setFirstComponent(planEntriesPanel)
-        setSecondComponent(userInputPanel)
-        setHonorComponentsMinimumSize(true)
-        dividerWidth = JBUI.scale(6)
+        minimumSize = Dimension(0, JBUI.scale(140))
+    }
+
+    private val controller = userInputPanel
+    private val planEntriesPanel: PlanEntriesPanel = PlanEntriesPanel().apply {
+        isVisible = false
     }
     private val composerContainer: JPanel = JPanel(BorderLayout())
-    private var rememberedPlanSplitterProportion: Float = DEFAULT_PLAN_SPLITTER_PROPORTION
-    private var lastPlanEntries: List<AcpSessionService.SessionPlanItem> = emptyList()
 
     init {
         logger.info("AcpToolWindowPanel init")
@@ -260,6 +239,7 @@ class AcpToolWindowPanel(
         Disposer.register(disposable, conversationAcpChatViewToolbar)
         Disposer.register(disposable) { uiScope.cancel() }
         composerContainer.isOpaque = false
+        composerContainer.add(planEntriesPanel, BorderLayout.NORTH)
         composerContainer.add(userInputPanel, BorderLayout.CENTER)
 
         val splitter = Splitter(
@@ -275,39 +255,8 @@ class AcpToolWindowPanel(
     }
 
     private fun updatePlanEntries(entries: List<AcpSessionService.SessionPlanItem>) {
-        val hadEntries = lastPlanEntries.isNotEmpty()
-        lastPlanEntries = entries
         planEntriesPanel.updatePlanEntries(entries)
-
-        if (entries.isEmpty()) {
-            showComposerWithoutPlan()
-            planEntriesPanel.setExpanded(true)
-            return
-        }
-
-        showComposerWithPlan()
-        if (!hadEntries || !planEntriesPanel.isExpanded()) {
-            planEntriesPanel.setExpanded(true)
-            composerSplitter.proportion = rememberedPlanSplitterProportion
-        }
-    }
-
-    private fun showComposerWithPlan() {
-        if (composerContainer.components.singleOrNull() === composerSplitter) {
-            return
-        }
-        composerContainer.removeAll()
-        composerContainer.add(composerSplitter, BorderLayout.CENTER)
-        composerContainer.revalidate()
-        composerContainer.repaint()
-    }
-
-    private fun showComposerWithoutPlan() {
-        if (composerContainer.components.singleOrNull() === userInputPanel) {
-            return
-        }
-        composerContainer.removeAll()
-        composerContainer.add(userInputPanel, BorderLayout.CENTER)
+        planEntriesPanel.isVisible = entries.isNotEmpty()
         composerContainer.revalidate()
         composerContainer.repaint()
     }

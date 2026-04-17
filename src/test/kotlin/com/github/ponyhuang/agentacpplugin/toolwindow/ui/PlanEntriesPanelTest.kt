@@ -2,13 +2,13 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import java.awt.Container
 import javax.swing.JComponent
 import javax.swing.JLabel
-import javax.swing.JPanel
 
 class PlanEntriesPanelTest : BasePlatformTestCase() {
 
-    fun testUpdatePlanEntriesRendersRowsAndCount() {
+    fun testUpdatePlanEntriesRendersSummaryAndCount() {
         val panel = PlanEntriesPanel()
         panel.updatePlanEntries(
             listOf(
@@ -25,16 +25,27 @@ class PlanEntriesPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val entryListPanel = readComponent<JPanel>(panel, "entryListPanel")
         val countLabel = readComponent<JLabel>(panel, "countLabel")
+        val summaryLabel = readComponent<JLabel>(panel, "summaryLabel")
 
+        assertTrue(panel.isVisible)
         assertEquals("2 items", countLabel.text)
-        assertEquals(3, entryListPanel.componentCount)
-        assertNotNull(findLabel(entryListPanel, "Inspect files"))
-        assertNotNull(findLabel(entryListPanel, "in progress | high"))
+        assertEquals("Inspect files", summaryLabel.text)
     }
 
-    fun testCollapsedPanelHidesScrollableBodyButKeepsHeaderVisible() {
+    fun testEmptyEntriesHidePanelAndClearSummary() {
+        val panel = PlanEntriesPanel()
+        panel.updatePlanEntries(emptyList())
+
+        val countLabel = readComponent<JLabel>(panel, "countLabel")
+        val summaryLabel = readComponent<JLabel>(panel, "summaryLabel")
+
+        assertFalse(panel.isVisible)
+        assertEquals("", countLabel.text)
+        assertEquals("", summaryLabel.text)
+    }
+
+    fun testPopupContentRendersAllEntries() {
         val panel = PlanEntriesPanel()
         panel.updatePlanEntries(
             listOf(
@@ -42,18 +53,21 @@ class PlanEntriesPanelTest : BasePlatformTestCase() {
                     content = "Inspect files",
                     priority = "high",
                     status = "in_progress"
+                ),
+                AcpSessionService.SessionPlanItem(
+                    content = "Render panel",
+                    priority = "medium",
+                    status = "pending"
                 )
             )
         )
 
-        panel.setExpanded(false)
+        val popupContent = panel.createPopupContentForTest()
 
-        val scrollPane = readComponent<JComponent>(panel, "scrollPane")
-        val titleLabel = readComponent<JLabel>(panel, "titleLabel")
-
-        assertFalse(panel.isExpanded())
-        assertFalse(scrollPane.isVisible)
-        assertEquals("Latest Plan", titleLabel.text)
+        assertNotNull(findLabel(popupContent, "Inspect files"))
+        assertNotNull(findLabel(popupContent, "in progress | high"))
+        assertNotNull(findLabel(popupContent, "Render panel"))
+        assertNotNull(findLabel(popupContent, "pending | medium"))
     }
 
     private inline fun <reified T> readComponent(panel: PlanEntriesPanel, fieldName: String): T {
@@ -62,15 +76,15 @@ class PlanEntriesPanelTest : BasePlatformTestCase() {
         }.get(panel) as T
     }
 
-    private fun findLabel(root: JComponent, text: String): JLabel? {
-        if (root is JLabel && root.text == text) {
-            return root
-        }
+    private fun findLabel(root: Container, text: String): JLabel? {
         root.components.forEach { child ->
-            if (child is JComponent) {
-                val match = findLabel(child, text)
-                if (match != null) {
-                    return match
+            if (child is JLabel && child.text == text) {
+                return child
+            }
+            if (child is Container) {
+                val nested = findLabel(child, text)
+                if (nested != null) {
+                    return nested
                 }
             }
         }

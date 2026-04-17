@@ -5,9 +5,12 @@ import com.agentclientprotocol.model.PlanEntryPriority
 import com.agentclientprotocol.model.PlanEntryStatus
 import com.agentclientprotocol.model.SessionUpdate
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.PlanEntriesPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import java.awt.BorderLayout
 import java.awt.Container
 
 class AcpToolWindowPanelTest : BasePlatformTestCase() {
@@ -23,11 +26,29 @@ class AcpToolWindowPanelTest : BasePlatformTestCase() {
         }
     }
 
-    fun testToolWindowPanelShowsPlanComposerSectionWhenPlanEntriesArrive() {
+    fun testToolWindowPanelUsesBorderLayoutComposerContainer() {
+        val disposable = Disposer.newDisposable()
+        try {
+            val panel = AcpToolWindowPanel(project, disposable)
+
+            val composerContainer = readField<Container>(panel, "composerContainer")
+            val planEntriesPanel = readField<PlanEntriesPanel>(panel, "planEntriesPanel")
+            val userInputPanel = readField<AcpUserInputPanel>(panel, "userInputPanel")
+            val layout = composerContainer.layout as BorderLayout
+
+            assertSame(planEntriesPanel, layout.getLayoutComponent(BorderLayout.NORTH))
+            assertSame(userInputPanel, layout.getLayoutComponent(BorderLayout.CENTER))
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testToolWindowPanelShowsPlanPanelWhenPlanEntriesArrive() {
         val disposable = Disposer.newDisposable()
         try {
             val panel = AcpToolWindowPanel(project, disposable)
             val sessionService = project.getService(AcpSessionService::class.java)
+            val planEntriesPanel = readField<PlanEntriesPanel>(panel, "planEntriesPanel")
 
             sessionService.applySessionUpdate(
                 SessionUpdate.PlanUpdate(
@@ -43,22 +64,61 @@ class AcpToolWindowPanelTest : BasePlatformTestCase() {
 
             PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
 
-            val composerContainer = readField<Container>(panel, "composerContainer")
-            assertEquals(1, composerContainer.componentCount)
-            assertEquals(
-                "com.intellij.openapi.ui.Splitter",
-                composerContainer.components.single().javaClass.name
-            )
+            assertTrue(planEntriesPanel.isVisible)
+            assertTrue(planEntriesPanel.hasEntries())
         } finally {
             Disposer.dispose(disposable)
         }
     }
 
-    fun testToolWindowPanelFallsBackToUserInputWhenPlanEntriesAreCleared() {
+    fun testToolWindowPanelKeepsUserInputPanelMountedAcrossPlanUpdates() {
         val disposable = Disposer.newDisposable()
         try {
             val panel = AcpToolWindowPanel(project, disposable)
             val sessionService = project.getService(AcpSessionService::class.java)
+            val composerContainer = readField<Container>(panel, "composerContainer")
+            val userInputPanel = readField<AcpUserInputPanel>(panel, "userInputPanel")
+
+            sessionService.applySessionUpdate(
+                SessionUpdate.PlanUpdate(
+                    entries = listOf(
+                        PlanEntry(
+                            content = "Inspect files",
+                            priority = PlanEntryPriority.HIGH,
+                            status = PlanEntryStatus.IN_PROGRESS
+                        )
+                    )
+                )
+            )
+            sessionService.applySessionUpdate(
+                SessionUpdate.PlanUpdate(
+                    entries = listOf(
+                        PlanEntry(
+                            content = "Render panel",
+                            priority = PlanEntryPriority.MEDIUM,
+                            status = PlanEntryStatus.PENDING
+                        )
+                    )
+                )
+            )
+
+            PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+
+            val layout = composerContainer.layout as BorderLayout
+            assertSame(userInputPanel, layout.getLayoutComponent(BorderLayout.CENTER))
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testToolWindowPanelHidesPlanPanelWhenPlanEntriesAreCleared() {
+        val disposable = Disposer.newDisposable()
+        try {
+            val panel = AcpToolWindowPanel(project, disposable)
+            val sessionService = project.getService(AcpSessionService::class.java)
+            val composerContainer = readField<Container>(panel, "composerContainer")
+            val planEntriesPanel = readField<PlanEntriesPanel>(panel, "planEntriesPanel")
+            val userInputPanel = readField<AcpUserInputPanel>(panel, "userInputPanel")
 
             sessionService.applySessionUpdate(
                 SessionUpdate.PlanUpdate(
@@ -75,12 +135,9 @@ class AcpToolWindowPanelTest : BasePlatformTestCase() {
 
             PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
 
-            val composerContainer = readField<Container>(panel, "composerContainer")
-            assertEquals(1, composerContainer.componentCount)
-            assertEquals(
-                "com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel",
-                composerContainer.components.single().javaClass.name
-            )
+            val layout = composerContainer.layout as BorderLayout
+            assertFalse(planEntriesPanel.isVisible)
+            assertSame(userInputPanel, layout.getLayoutComponent(BorderLayout.CENTER))
         } finally {
             Disposer.dispose(disposable)
         }
