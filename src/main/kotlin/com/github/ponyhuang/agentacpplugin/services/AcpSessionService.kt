@@ -5,9 +5,11 @@ import com.agentclientprotocol.annotations.UnstableApi
 import com.agentclientprotocol.client.ClientSession
 import com.agentclientprotocol.common.Event
 import com.agentclientprotocol.model.*
+import com.github.ponyhuang.agentacpplugin.toolwindow.AcpToolWindowPanel
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +43,8 @@ class AcpSessionService(private val project: Project) : Disposable {
         private const val ROLE_ASSISTANT = "assistant"
     }
 
+    private val logger: Logger = Logger.getInstance(AcpSessionService::class.java)
+    
     private val permissionRequestService = project.service<AcpPermissionRequestService>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -317,9 +321,9 @@ class AcpSessionService(private val project: Project) : Disposable {
     @OptIn(UnstableApi::class)
     suspend fun cancel() {
         val session = _currentSession ?: return
-        println("[AcpSessionService] Cancelling current operation...")
+        logger.info("[AcpSessionService] Cancelling current operation...")
         session.cancel()
-        println("[AcpSessionService] Cancel completed")
+        logger.info("[AcpSessionService] Cancel completed")
     }
 
     /**
@@ -329,7 +333,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     @OptIn(UnstableApi::class)
     suspend fun setMode(modeId: String) {
         val session = _currentSession ?: return
-        println("[AcpSessionService] Setting mode to: $modeId")
+        logger.info("[AcpSessionService] Setting mode to: $modeId")
         session.setMode(SessionModeId(modeId))
         // Mode change will be confirmed via CurrentModeUpdate notification
     }
@@ -341,7 +345,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     @OptIn(UnstableApi::class)
     suspend fun setModel(modelId: String) {
         val session = _currentSession ?: return
-        println("[AcpSessionService] Setting model to: $modelId")
+        logger.info("[AcpSessionService] Setting model to: $modelId")
         session.setModel(ModelId(modelId))
         // Model change will be confirmed via notification
     }
@@ -364,7 +368,7 @@ class AcpSessionService(private val project: Project) : Disposable {
             is SessionUpdate.SessionInfoUpdate -> handleSessionInfoUpdate(update)
             is SessionUpdate.ConfigOptionUpdate -> handleConfigOptionUpdate(update)
             is SessionUpdate.UnknownSessionUpdate -> {
-                println("[AcpSessionService] Unknown session update type: ${update.sessionUpdateType}")
+                logger.error("[AcpSessionService] Unknown session update type: ${update.sessionUpdateType}")
             }
         }
     }
@@ -508,9 +512,9 @@ class AcpSessionService(private val project: Project) : Disposable {
                 status = entry.status.toUiValue()
             )
         }
-        println("[AcpSessionService] Plan update: ${update.entries.size} entries")
+        logger.info("[AcpSessionService] Plan update: ${update.entries.size} entries")
         for (entry in update.entries) {
-            println("[AcpSessionService]   - [${entry.status.name}] ${entry.content}")
+            logger.info("[AcpSessionService]   - [${entry.status.name}] ${entry.content}")
         }
     }
 
@@ -519,9 +523,9 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     private fun handleAvailableCommandsUpdate(update: SessionUpdate.AvailableCommandsUpdate) {
         _availableCommands.value = update.availableCommands
-        println("[AcpSessionService] Available commands updated: ${update.availableCommands.size} commands")
+        logger.info("[AcpSessionService] Available commands updated: ${update.availableCommands.size} commands")
         for (cmd in update.availableCommands) {
-            println("[AcpSessionService]   - /${cmd.name}: ${cmd.description}")
+            logger.info("[AcpSessionService]   - /${cmd.name}: ${cmd.description}")
         }
     }
 
@@ -530,7 +534,7 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     private fun handleCurrentModeUpdate(update: SessionUpdate.CurrentModeUpdate) {
         _currentModeId.value = update.currentModeId.value
-        println("[AcpSessionService] Mode changed to: ${update.currentModeId.value}")
+        logger.info("[AcpSessionService] Mode changed to: ${update.currentModeId.value}")
     }
 
     /**
@@ -543,7 +547,7 @@ class AcpSessionService(private val project: Project) : Disposable {
             costAmount = update.cost?.amount,
             costCurrency = update.cost?.currency
         )
-        println("[AcpSessionService] Usage: ${update.used}/${update.size} tokens" +
+        logger.info("[AcpSessionService] Usage: ${update.used}/${update.size} tokens" +
                 (update.cost?.let { " (cost: ${it.amount} ${it.currency})" } ?: ""))
     }
 
@@ -553,14 +557,14 @@ class AcpSessionService(private val project: Project) : Disposable {
     private fun handleSessionInfoUpdate(update: SessionUpdate.SessionInfoUpdate) {
         update.title?.let { _sessionTitle.value = it }
         update.updatedAt?.let { _sessionUpdatedAt.value = parseUpdatedAt(it) }
-        println("[AcpSessionService] Session info update: title=${update.title}, updatedAt=${update.updatedAt}")
+        logger.info("[AcpSessionService] Session info update: title=${update.title}, updatedAt=${update.updatedAt}")
     }
 
     /**
      * Handle config option update.
      */
     private fun handleConfigOptionUpdate(update: SessionUpdate.ConfigOptionUpdate) {
-        println("[AcpSessionService] Config options updated: ${update.configOptions.size} options")
+        logger.info("[AcpSessionService] Config options updated: ${update.configOptions.size} options")
     }
 
     /**
@@ -569,7 +573,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     private fun handlePromptResponse(response: PromptResponse) {
         _lastStopReason.value = response.stopReason
         _sessionUpdatedAt.value = System.currentTimeMillis()
-        println("[AcpSessionService] Prompt completed. Stop reason: ${response.stopReason}")
+        logger.info("[AcpSessionService] Prompt completed. Stop reason: ${response.stopReason}")
     }
 
     /**

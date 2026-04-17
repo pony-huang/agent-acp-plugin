@@ -11,6 +11,7 @@ import com.agentclientprotocol.model.*
 import com.agentclientprotocol.protocol.Protocol
 import com.agentclientprotocol.transport.StdioTransport
 import com.agentclientprotocol.transport.Transport
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +72,8 @@ private fun applyEnvironmentVariables(processBuilder: ProcessBuilder, envs: List
         }
     }
 }
+
+private val logger: Logger = Logger.getInstance(DefaultClientSessionOperations::class.java)
 
 class DefaultClientSessionOperations(
     val sessionUpdateSink: suspend (SessionUpdate) -> Unit,
@@ -175,9 +178,9 @@ class DefaultClientSessionOperations(
             permissions: List<PermissionOption>,
             meta: JsonElement?,
         ): RequestPermissionResponse {
-            println("[PermissionRequest] Agent requested permissions for tool call: ${toolCall.title}")
+            logger.info("[PermissionRequest] Agent requested permissions for tool call: ${toolCall.title}")
             permissions.forEachIndexed { index, permission ->
-                println("[PermissionRequest]   ${index + 1}. ${permission.name} (${permission.kind})")
+                logger.info("[PermissionRequest]   ${index + 1}. ${permission.name} (${permission.kind})")
             }
 
             val selectedOption = permissions.firstOrNull {
@@ -185,13 +188,13 @@ class DefaultClientSessionOperations(
             } ?: permissions.firstOrNull()
 
             return if (selectedOption != null) {
-                println("[PermissionRequest] Auto-selecting option: ${selectedOption.name}")
+                logger.info("[PermissionRequest] Auto-selecting option: ${selectedOption.name}")
                 RequestPermissionResponse(
                     RequestPermissionOutcome.Selected(selectedOption.optionId),
                     meta
                 )
             } else {
-                println("[PermissionRequest] No options available, cancelling request")
+                logger.info("[PermissionRequest] No options available, cancelling request")
                 RequestPermissionResponse(
                     RequestPermissionOutcome.Cancelled,
                     meta
