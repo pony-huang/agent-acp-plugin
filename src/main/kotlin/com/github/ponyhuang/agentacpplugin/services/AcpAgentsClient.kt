@@ -119,52 +119,54 @@ class DefaultClientSessionOperations(
         cwd: String?, env: List<EnvVariable>,
         outputByteLimit: ULong?, _meta: JsonElement?,
     ): CreateTerminalResponse {
-        val processBuilder = if (System.getProperty("os.name").lowercase().contains("windows")) {
-            // Windows: 将 bash -c 命令转换为 cmd.exe /c
-            if (command == "bash" && args.firstOrNull() == "-c") {
-                ProcessBuilder(listOf("cmd.exe", "/c") + args.drop(1))
-            } else {
-                ProcessBuilder(listOf(command) + args)
-            }
-        } else {
-            // Unix-like: 直接执行
-            ProcessBuilder(listOf(command) + args)
-        }
-        cwd?.let { processBuilder.directory(File(it)) }
-        processBuilder.environment().putAll(env.associate { it.name to it.value })
-
-        val process = processBuilder.start()
-        val terminalId = UUID.randomUUID().toString()
-        activeTerminals[terminalId] = process
-
-        return CreateTerminalResponse(terminalId)
+//        val processBuilder = if (System.getProperty("os.name").lowercase().contains("windows")) {
+//            // Windows: 将 bash -c 命令转换为 cmd.exe /c
+//            if (command == "bash" && args.firstOrNull() == "-c") {
+//                ProcessBuilder(listOf("cmd.exe", "/c") + args.drop(1))
+//            } else {
+//                ProcessBuilder(listOf(command) + args)
+//            }
+//        } else {
+//            // Unix-like: 直接执行
+//            ProcessBuilder(listOf(command) + args)
+//        }
+//        cwd?.let { processBuilder.directory(File(it)) }
+//        processBuilder.environment().putAll(env.associate { it.name to it.value })
+//
+//        val process = processBuilder.start()
+//        val terminalId = UUID.randomUUID().toString()
+//        activeTerminals[terminalId] = process
+//
+//        return CreateTerminalResponse(terminalId)
+        return CreateTerminalResponse("terminalId")
     }
 
     override suspend fun terminalOutput(
         terminalId: String,
         _meta: JsonElement?,
     ): TerminalOutputResponse {
-        val process = activeTerminals[terminalId] ?: error("Terminal not found: $terminalId")
-        val stdout = process.inputStream.bufferedReader().readText()
-        val stderr = process.errorStream.bufferedReader().readText()
-        val output = buildString {
-            append(stdout)
-            if (stderr.isNotEmpty()) {
-                appendLine()
-                append(STDERR_LABEL)
-                appendLine()
-                append(stderr)
-            }
-        }
-
-        return TerminalOutputResponse(output, truncated = false)
+//        val process = activeTerminals[terminalId] ?: error("Terminal not found: $terminalId")
+//        val stdout = process.inputStream.bufferedReader().readText()
+//        val stderr = process.errorStream.bufferedReader().readText()
+//        val output = buildString {
+//            append(stdout)
+//            if (stderr.isNotEmpty()) {
+//                appendLine()
+//                append(STDERR_LABEL)
+//                appendLine()
+//                append(stderr)
+//            }
+//        }
+//
+//        return TerminalOutputResponse(output, truncated = false)
+        return TerminalOutputResponse("", truncated = false)
     }
 
     override suspend fun terminalRelease(
         terminalId: String,
         _meta: JsonElement?,
     ): ReleaseTerminalResponse {
-        activeTerminals.remove(terminalId)
+//        activeTerminals.remove(terminalId)
         return ReleaseTerminalResponse()
     }
 
@@ -172,17 +174,18 @@ class DefaultClientSessionOperations(
         terminalId: String,
         _meta: JsonElement?,
     ): WaitForTerminalExitResponse {
-        val process = activeTerminals[terminalId] ?: error("Terminal not found: $terminalId")
-        val exitCode = process.waitFor()
-        return WaitForTerminalExitResponse(exitCode.toUInt())
+//        val process = activeTerminals[terminalId] ?: error("Terminal not found: $terminalId")
+//        val exitCode = process.waitFor()
+//        return WaitForTerminalExitResponse(exitCode.toUInt())
+        return WaitForTerminalExitResponse()
     }
 
     override suspend fun terminalKill(
         terminalId: String,
         _meta: JsonElement?,
     ): KillTerminalCommandResponse {
-        val process = activeTerminals[terminalId]
-        process?.destroy()
+//        val process = activeTerminals[terminalId]
+//        process?.destroy()
         return KillTerminalCommandResponse()
     }
 
