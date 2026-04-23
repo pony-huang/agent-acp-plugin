@@ -49,49 +49,14 @@ class AcpChatViewPanel(
         viewport.background = UIUtil.getPanelBackground()
         horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
     }
-
-    // Smart scrolling state
-    private var adjustScrollBar = true
-    private var previousValue = -1
-    private var previousMaximum = -1
-
-    private val smartScrollerListener: SmartScrollerListener
+    private val smartScroller = SmartScroller(messageScrollPane.verticalScrollBar)
 
     init {
         border = JBUI.Borders.empty()
         background = UIUtil.getPanelBackground()
         add(messageScrollPane, BorderLayout.CENTER)
-        smartScrollerListener = SmartScrollerListener()
-        messageScrollPane.verticalScrollBar.addAdjustmentListener(smartScrollerListener)
         bind()
         Disposer.register(parentDisposable, this)
-    }
-
-    private inner class SmartScrollerListener : java.awt.event.AdjustmentListener {
-        override fun adjustmentValueChanged(e: java.awt.event.AdjustmentEvent) {
-            val scrollBar = e.source as JScrollBar
-            val model = scrollBar.model
-            val value = model.value
-            val extent = model.extent
-            val maximum = model.maximum
-
-            val valueChanged = previousValue != value
-            val maximumChanged = previousMaximum != maximum
-
-            if (valueChanged && !maximumChanged) {
-                adjustScrollBar = value + extent >= maximum
-            }
-
-            if (adjustScrollBar) {
-                scrollBar.removeAdjustmentListener(this)
-                val newValue = maximum - extent
-                scrollBar.value = newValue
-                scrollBar.addAdjustmentListener(this)
-            }
-
-            previousValue = value
-            previousMaximum = maximum
-        }
     }
 
     @OptIn(UnstableApi::class)
@@ -234,7 +199,7 @@ class AcpChatViewPanel(
     }
 
     override fun dispose() {
-        messageScrollPane.verticalScrollBar.removeAdjustmentListener(smartScrollerListener)
+        smartScroller.dispose()
         uiScope.cancel()
     }
 }
