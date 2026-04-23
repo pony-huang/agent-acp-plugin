@@ -22,10 +22,15 @@ import kotlinx.coroutines.flow.collectLatest
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.html.HtmlGenerator
 import org.intellij.markdown.parser.MarkdownParser
+import java.awt.BasicStroke
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.Graphics
+import java.awt.Graphics2D
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
+import java.awt.RenderingHints
+import java.awt.geom.RoundRectangle2D
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.*
 import javax.swing.SwingUtilities
@@ -279,15 +284,25 @@ private class MessageCardPanel(
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     init {
-        layout = BorderLayout(0, JBUI.scale(8))
+        layout = BorderLayout()
         alignmentX = LEFT_ALIGNMENT
-        isOpaque = true
-        background = backgroundForRole(message.role)
-        border = JBUI.Borders.empty(10)
+        isOpaque = false
+        border = JBUI.Borders.empty()
 
-        add(createHeader(), BorderLayout.NORTH)
-        add(createBody(thoughtExpanded, onThoughtToggled), BorderLayout.CENTER)
-        promptState?.let { add(createFooter(it), BorderLayout.SOUTH) }
+        val chrome = MessageTemplatePanel(
+            backgroundColor = backgroundForRole(message.role),
+            borderColor = borderForRole(message.role),
+            arc = 16,
+            padding = JBUI.insets(10)
+        )
+        add(chrome, BorderLayout.CENTER)
+
+        chrome.contentPanel.apply {
+            layout = BorderLayout(0, JBUI.scale(8))
+            add(createHeader(), BorderLayout.NORTH)
+            add(createBody(thoughtExpanded, onThoughtToggled), BorderLayout.CENTER)
+            promptState?.let { add(createFooter(it), BorderLayout.SOUTH) }
+        }
     }
 
     private fun createHeader(): JComponent {
@@ -370,6 +385,20 @@ private class MessageCardPanel(
             )
         }
     }
+
+    private fun borderForRole(role: String): JBColor {
+        return if (role == "user") {
+            JBColor(
+                JBColor.namedColor("Component.focusColor", JBColor(0x8AB8E8, 0x3B6E99)),
+                JBColor.namedColor("Component.focusColor", JBColor(0x8AB8E8, 0x3B6E99))
+            )
+        } else {
+            JBColor(
+                ColorUtil.mix(JBColor.border(), UIUtil.getLabelForeground(), 0.12),
+                ColorUtil.mix(JBColor.border(), UIUtil.getLabelForeground(), 0.18)
+            )
+        }
+    }
 }
 
 private class ThoughtPanel(
@@ -382,11 +411,14 @@ private class ThoughtPanel(
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     init {
-        layout = BorderLayout(0, JBUI.scale(6))
+        layout = BorderLayout()
         alignmentX = LEFT_ALIGNMENT
-        isOpaque = true
-        background = UIUtil.getPanelBackground()
-        border = JBUI.Borders.empty(6, 8)
+        isOpaque = false
+
+        val chrome = nestedTemplatePanel()
+        add(chrome, BorderLayout.CENTER)
+
+        chrome.contentPanel.layout = BorderLayout(0, JBUI.scale(6))
 
         val toggle = ActionLink(if (expanded) "Hide Thinking" else "Show Thinking").apply {
             addActionListener {
@@ -398,12 +430,12 @@ private class ThoughtPanel(
                 repaint()
             }
         }
-        add(toggle, BorderLayout.NORTH)
+        chrome.contentPanel.add(toggle, BorderLayout.NORTH)
 
         contentPanel.isOpaque = false
         contentPanel.isVisible = expanded
         contentPanel.add(MarkdownPane(thought), BorderLayout.CENTER)
-        add(contentPanel, BorderLayout.CENTER)
+        chrome.contentPanel.add(contentPanel, BorderLayout.CENTER)
     }
 }
 
@@ -427,13 +459,15 @@ private class ToolCallRow(toolCall: AcpSessionService.ToolCallInfo) : JPanel() {
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     init {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        layout = BorderLayout()
         alignmentX = LEFT_ALIGNMENT
-        isOpaque = true
-        background = UIUtil.getPanelBackground()
-        border = JBUI.Borders.empty(6, 8)
+        isOpaque = false
 
-        add(
+        val chrome = nestedTemplatePanel()
+        add(chrome, BorderLayout.CENTER)
+        chrome.contentPanel.layout = BoxLayout(chrome.contentPanel, BoxLayout.Y_AXIS)
+
+        chrome.contentPanel.add(
             JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
                 isOpaque = false
                 add(
@@ -456,9 +490,9 @@ private class ToolCallRow(toolCall: AcpSessionService.ToolCallInfo) : JPanel() {
             toolCall.contentSummary?.takeIf { it.isNotBlank() }?.let { add(it) }
         }
         if (details.isNotEmpty()) {
-            add(Box.createVerticalStrut(JBUI.scale(4)))
+            chrome.contentPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
             details.forEachIndexed { index, line ->
-                add(
+                chrome.contentPanel.add(
                     JBLabel(line).apply {
                         foreground = UIUtil.getContextHelpForeground()
                         border = if (index == 0) JBUI.Borders.empty() else JBUI.Borders.emptyTop(2)
@@ -563,20 +597,22 @@ internal class PermissionRequestCardPanel(
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     init {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        layout = BorderLayout()
         alignmentX = LEFT_ALIGNMENT
-        isOpaque = true
-        background = UIUtil.getPanelBackground()
-        border = JBUI.Borders.empty(10)
+        isOpaque = false
 
-        add(
+        val chrome = nestedTemplatePanel()
+        add(chrome, BorderLayout.CENTER)
+        chrome.contentPanel.layout = BoxLayout(chrome.contentPanel, BoxLayout.Y_AXIS)
+
+        chrome.contentPanel.add(
             JBLabel("Permission Request").apply {
                 foreground = UIUtil.getContextHelpForeground()
                 border = JBUI.Borders.emptyBottom(6)
                 alignmentX = LEFT_ALIGNMENT
             }
         )
-        add(titleLabel.apply {
+        chrome.contentPanel.add(titleLabel.apply {
             foreground = UIUtil.getLabelForeground()
             border = JBUI.Borders.emptyBottom(8)
             alignmentX = LEFT_ALIGNMENT
@@ -600,8 +636,12 @@ internal class PermissionRequestCardPanel(
     private fun rebuildOptions() {
         titleLabel.text = currentRequest.title
 
-        while (componentCount > 2) {
-            remove(2)
+        while (componentCount > 1) {
+            remove(1)
+        }
+        val contentPanel = templateContentPanel()
+        while (contentPanel.componentCount > 2) {
+            contentPanel.remove(2)
         }
         while (buttonGroup.elements.hasMoreElements()) {
             buttonGroup.remove(buttonGroup.elements.nextElement())
@@ -609,7 +649,7 @@ internal class PermissionRequestCardPanel(
         radios.clear()
 
         if (currentRequest.options.isEmpty()) {
-            add(
+            contentPanel.add(
                 JBLabel("No permission options were provided by the agent.").apply {
                     foreground = UIUtil.getContextHelpForeground()
                     alignmentX = LEFT_ALIGNMENT
@@ -625,11 +665,11 @@ internal class PermissionRequestCardPanel(
                 }
                 buttonGroup.add(radio)
                 radios += option to radio
-                add(radio)
+                contentPanel.add(radio)
             }
 
-            add(Box.createVerticalStrut(JBUI.scale(8)))
-            add(submitButton)
+            contentPanel.add(Box.createVerticalStrut(JBUI.scale(8)))
+            contentPanel.add(submitButton)
         }
 
         applyRequestState()
@@ -646,6 +686,75 @@ internal class PermissionRequestCardPanel(
         submitButton.text = if (currentRequest.submitted) "Submitted" else "Submit"
         submitButton.isEnabled = !currentRequest.submitted
     }
+}
+
+private class MessageTemplatePanel(
+    private val backgroundColor: JBColor,
+    private val borderColor: JBColor,
+    private val arc: Int,
+    padding: java.awt.Insets
+) : JPanel(BorderLayout()) {
+    val contentPanel = TemplateContentPanel().apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(padding.top, padding.left, padding.bottom, padding.right)
+    }
+
+    init {
+        isOpaque = false
+        add(contentPanel, BorderLayout.CENTER)
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = backgroundColor
+            g2.fill(
+                RoundRectangle2D.Float(
+                    0f,
+                    0f,
+                    width.toFloat() - 1f,
+                    height.toFloat() - 1f,
+                    JBUI.scale(arc).toFloat(),
+                    JBUI.scale(arc).toFloat()
+                )
+            )
+        } finally {
+            g2.dispose()
+        }
+        super.paintComponent(g)
+    }
+
+    override fun paintBorder(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = borderColor
+            g2.stroke = BasicStroke(1f)
+            g2.drawRoundRect(0, 0, width - 1, height - 1, JBUI.scale(arc), JBUI.scale(arc))
+        } finally {
+            g2.dispose()
+        }
+    }
+}
+
+private class TemplateContentPanel : JPanel()
+
+private fun nestedTemplatePanel(): MessageTemplatePanel {
+    val base = UIUtil.getPanelBackground()
+    return MessageTemplatePanel(
+        backgroundColor = JBColor(
+            ColorUtil.mix(base, UIUtil.getLabelForeground(), 0.03),
+            ColorUtil.mix(base, UIUtil.getLabelForeground(), 0.07)
+        ),
+        borderColor = JBColor.namedColor("Component.borderColor", JBColor(0xC9C9C9, 0x5E6068)),
+        arc = 14,
+        padding = JBUI.insets(8)
+    )
+}
+
+private fun PermissionRequestCardPanel.templateContentPanel(): JPanel {
+    return (getComponent(0) as MessageTemplatePanel).contentPanel
 }
 
 private class MarkdownPane(content: String) : JEditorPane() {

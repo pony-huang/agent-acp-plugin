@@ -2,11 +2,10 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.icons.AllIcons
-import com.intellij.ui.components.ActionLink
-import com.intellij.ui.components.JBLabel
-import com.intellij.ui.TitledSeparator
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.ui.components.ActionLink
+import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import java.lang.reflect.Constructor
 import java.awt.Component
@@ -15,9 +14,12 @@ import java.awt.GridBagLayout
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.JRadioButton
-import javax.swing.border.EmptyBorder
 
 class AcpConversationPanelTest : BasePlatformTestCase() {
+    private val noOpPermissionSubmit: (String, String) -> Unit = { _, _ -> }
+    private val noOpPermissionCardCreated: (String, javax.swing.JComponent) -> Unit = { _, _ -> }
+    private val noOpCancel: () -> Unit = { }
+    private val noOpThoughtToggle: (Boolean) -> Unit = { }
 
     fun testMessagePanelUsesGridBagLayoutWithCompactHorizontalInset() {
         val disposable = Disposer.newDisposable()
@@ -65,12 +67,12 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                         thought = "thinking",
                         toolCalls = emptyList()
                     ),
-                    ({ _: String, _: String -> } as (String, String) -> Unit),
-                    ({ _: String, _: javax.swing.JComponent -> } as (String, javax.swing.JComponent) -> Unit),
-                    ({} as () -> Unit),
+                    noOpPermissionSubmit,
+                    noOpPermissionCardCreated,
+                    noOpCancel,
                     null,
                     false,
-                    ({ _: Boolean -> } as (Boolean) -> Unit)
+                    noOpThoughtToggle
                 )
             )
             val permissionCard = instantiatePrivatePanel(
@@ -156,12 +158,12 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             ),
             arrayOf(
                 message,
-                ({ _: String, _: String -> } as (String, String) -> Unit),
-                ({ _: String, _: javax.swing.JComponent -> } as (String, javax.swing.JComponent) -> Unit),
-                ({} as () -> Unit),
+                noOpPermissionSubmit,
+                noOpPermissionCardCreated,
+                noOpCancel,
                 null,
                 false,
-                ({ _: Boolean -> } as (Boolean) -> Unit)
+                noOpThoughtToggle
             )
         )
 
@@ -236,7 +238,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
 
         assertNotNull(titleLabel)
         assertEquals(AllIcons.General.InspectionsOK, statusIcon.icon)
-        assertTrue(row.border is EmptyBorder)
+        assertUsesTemplateChrome(row)
     }
 
     fun testToolCallRowUsesAnimatedRunningStatusIcon() {
@@ -277,7 +279,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertEquals(AllIcons.Actions.Cancel, statusIcon.icon)
     }
 
-    fun testVisualPanelsUseBannerChromeAndCollapsibleThoughtGroup() {
+    fun testVisualPanelsUseTemplateChromeAndNestedPanels() {
         val message = AcpSessionService.ChatMessage(
             id = "assistant-2",
             role = "assistant",
@@ -306,16 +308,16 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             ),
             arrayOf(
                 message,
-                ({ _: String, _: String -> } as (String, String) -> Unit),
-                ({ _: String, _: javax.swing.JComponent -> } as (String, javax.swing.JComponent) -> Unit),
-                ({} as () -> Unit),
+                noOpPermissionSubmit,
+                noOpPermissionCardCreated,
+                noOpCancel,
                 null,
                 false,
-                ({ _: Boolean -> } as (Boolean) -> Unit)
+                noOpThoughtToggle
             )
         )
         val thoughtPanel = findByClassName(messageCard, "ThoughtPanel") as javax.swing.JComponent
-        val toolList = findByClassName(messageCard, "ToolCallListPanel") as javax.swing.JComponent
+        val toolRow = findByClassName(messageCard, "ToolCallRow") as javax.swing.JComponent
         val permissionCard = instantiatePrivatePanel(
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.PermissionRequestCardPanel",
             arrayOf(
@@ -335,15 +337,13 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        assertTrue(messageCard.border is EmptyBorder)
-        assertTrue(findAllByType(thoughtPanel, TitledSeparator::class.java).isNotEmpty())
-        assertTrue(thoughtPanel.border is EmptyBorder)
-        assertBannerTemplate(thoughtPanel)
-        assertBannerTemplate(toolList)
-        assertBannerTemplate(permissionCard)
+        assertUsesTemplateChrome(messageCard)
+        assertUsesTemplateChrome(thoughtPanel)
+        assertUsesTemplateChrome(toolRow)
+        assertUsesTemplateChrome(permissionCard)
     }
 
-    fun testThoughtPanelUsesCollapsibleGroupTitle() {
+    fun testThoughtPanelUsesToggleLinkInsideTemplateChrome() {
         val thoughtPanel = instantiatePrivatePanel(
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.ThoughtPanel",
             arrayOf(
@@ -354,14 +354,15 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             arrayOf(
                 "thinking",
                 true,
-                ({ _: Boolean -> } as (Boolean) -> Unit)
+                noOpThoughtToggle
             )
         )
 
-        val separator = findAllByType(thoughtPanel, TitledSeparator::class.java).singleOrNull()
+        val toggle = findAllByType(thoughtPanel, ActionLink::class.java).singleOrNull()
 
-        assertNotNull(separator)
-        assertEquals("Thinking", separator!!.text)
+        assertNotNull(toggle)
+        assertEquals("Hide Thinking", toggle!!.text)
+        assertUsesTemplateChrome(thoughtPanel)
     }
 
     fun testAssistantPromptStatusUsesAnimatedRunningIcon() {
@@ -458,12 +459,12 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             ),
             arrayOf(
                 message,
-                ({ _: String, _: String -> } as (String, String) -> Unit),
-                ({ _: String, _: javax.swing.JComponent -> } as (String, javax.swing.JComponent) -> Unit),
+                noOpPermissionSubmit,
+                noOpPermissionCardCreated,
                 onCancelPrompt,
                 promptState,
                 false,
-                ({ _: Boolean -> } as (Boolean) -> Unit)
+                noOpThoughtToggle
             )
         )
     }
@@ -516,19 +517,6 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         return results
     }
 
-    private fun countByClassName(root: Component, simpleName: String): Int {
-        var total = 0
-        if (root.javaClass.simpleName == simpleName) {
-            total++
-        }
-        if (root is Container) {
-            root.components.forEach { child ->
-                total += countByClassName(child, simpleName)
-            }
-        }
-        return total
-    }
-
     private fun createMessagePanelConstraints(row: Int) = java.awt.GridBagConstraints().apply {
         gridx = 0
         gridy = row
@@ -546,8 +534,9 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         fill = java.awt.GridBagConstraints.BOTH
     }
 
-    private fun assertBannerTemplate(component: Component) {
-        assertNotNull(findByClassName(component, "DefaultBannerTemplatePanel"))
-        assertTrue(countByClassName(component, "BannerDividerPanel") >= 2)
+    private fun assertUsesTemplateChrome(component: Component) {
+        val template = findByClassName(component, "MessageTemplatePanel")
+        assertNotNull(template)
+        assertNotNull(findByClassName(component, "TemplateContentPanel"))
     }
 }
