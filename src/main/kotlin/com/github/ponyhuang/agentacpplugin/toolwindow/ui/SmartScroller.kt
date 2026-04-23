@@ -81,3 +81,21 @@ internal class SmartScrollState(
         return targetValue?.takeUnless { it == value }
     }
 }
+
+internal data class ScrollSnapshot(
+    val value: Int,
+    val extent: Int,
+    val maximum: Int
+) {
+    val wasAtEnd: Boolean
+        get() = value + extent >= maximum
+
+    fun restoreTarget(updatedModel: BoundedRangeModel): Int {
+        val maxValue = (updatedModel.maximum - updatedModel.extent).coerceAtLeast(0)
+        return if (wasAtEnd) {
+            maxValue
+        } else {
+            value.coerceIn(0, maxValue)
+        }
+    }
+}

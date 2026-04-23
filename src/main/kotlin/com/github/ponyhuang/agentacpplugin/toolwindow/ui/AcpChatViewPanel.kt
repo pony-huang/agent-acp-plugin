@@ -19,7 +19,6 @@ import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.html.HtmlGenerator
 import org.intellij.markdown.parser.MarkdownParser
@@ -29,6 +28,7 @@ import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.*
+import javax.swing.SwingUtilities
 
 class AcpChatViewPanel(
     project: Project,
@@ -50,6 +50,7 @@ class AcpChatViewPanel(
         horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
     }
     private val smartScroller = SmartScroller(messageScrollPane.verticalScrollBar)
+    private val permissionCardsByRequestId = linkedMapOf<String, PermissionRequestCardPanel>()
 
     init {
         border = JBUI.Borders.empty()
@@ -65,18 +66,23 @@ class AcpChatViewPanel(
             combine(
                 sessionService.messages,
                 sessionService.isLoading,
-                sessionService.pendingPermissionRequests,
                 sessionService.lastStopReason
-            ) { messages, isLoading, pendingPermissionRequests, lastStopReason ->
+            ) { messages, isLoading, lastStopReason ->
                 ConversationViewState(
                     messages = messages,
                     isLoading = isLoading,
-                    pendingPermissionRequests = pendingPermissionRequests,
                     lastStopReason = lastStopReason
                 )
-            }.distinctUntilChanged().collectLatest { state ->
+            }.collectLatest { state ->
                 render(state)
             }
+        }
+
+        uiScope.launch {
+            sessionService.pendingPermissionRequests
+                .collectLatest { requests ->
+                    refreshPermissionCards(requests)
+                }
         }
     }
 
@@ -87,9 +93,11 @@ class AcpChatViewPanel(
                 return@invokeLater
             }
 
+            val scrollSnapshot = captureScrollSnapshot()
             val visibleMessages = state.messages.filter { it.hasRenderableContent() }
 
             expandedThoughts.retainAll(state.messages.map { it.id }.toSet())
+            permissionCardsByRequestId.clear()
             messagePanel.removeAll()
             if (visibleMessages.isEmpty() && !state.isLoading) {
                 addMessageRow(createEmptyState(), 0, false)
@@ -101,11 +109,13 @@ class AcpChatViewPanel(
                     addMessageRow(
                         MessageCardPanel(
                             message = message,
-                            pendingPermissionRequests = state.pendingPermissionRequests,
                             onPermissionSubmit = { requestId, optionId ->
                                 uiScope.launch {
                                     sessionService.submitPermissionRequest(requestId, optionId)
                                 }
+                            },
+                            onPermissionCardCreated = { requestId, card ->
+                                permissionCardsByRequestId[requestId] = card
                             },
                             onCancelPrompt = {
                                 uiScope.launch {
@@ -135,6 +145,40 @@ class AcpChatViewPanel(
 
             messagePanel.revalidate()
             messagePanel.repaint()
+            restoreScrollSnapshot(scrollSnapshot, requestedVersion)
+            refreshPermissionCards(sessionService.pendingPermissionRequests.value)
+        }
+    }
+
+    private fun refreshPermissionCards(requests: List<AcpSessionService.PermissionRequestInfo>) {
+        ApplicationManager.getApplication().invokeLater {
+            requests.forEach { request ->
+                permissionCardsByRequestId[request.requestId]?.updateRequest(request)
+            }
+        }
+    }
+
+    private fun captureScrollSnapshot(): ScrollSnapshot {
+        val model = messageScrollPane.verticalScrollBar.model
+        return ScrollSnapshot(
+            value = model.value,
+            extent = model.extent,
+            maximum = model.maximum
+        )
+    }
+
+    private fun restoreScrollSnapshot(snapshot: ScrollSnapshot, requestedVersion: Int) {
+        SwingUtilities.invokeLater {
+            if (requestedVersion != renderVersion.get()) {
+                return@invokeLater
+            }
+
+            val scrollBar = messageScrollPane.verticalScrollBar
+            val model = scrollBar.model
+            val targetValue = snapshot.restoreTarget(model)
+            if (targetValue != model.value) {
+                scrollBar.value = targetValue
+            }
         }
     }
 
@@ -207,7 +251,6 @@ class AcpChatViewPanel(
 private data class ConversationViewState(
     val messages: List<AcpSessionService.ChatMessage>,
     val isLoading: Boolean,
-    val pendingPermissionRequests: List<AcpSessionService.PermissionRequestInfo>,
     val lastStopReason: StopReason?
 )
 
@@ -226,15 +269,13 @@ private fun AcpSessionService.ChatMessage.hasRenderableContent(): Boolean {
 
 private class MessageCardPanel(
     val message: AcpSessionService.ChatMessage,
-    pendingPermissionRequests: List<AcpSessionService.PermissionRequestInfo>,
     private val onPermissionSubmit: (String, String) -> Unit,
+    private val onPermissionCardCreated: (String, PermissionRequestCardPanel) -> Unit,
     private val onCancelPrompt: () -> Unit,
     promptState: MessagePromptState?,
     thoughtExpanded: Boolean,
     onThoughtToggled: (Boolean) -> Unit
 ) : JPanel() {
-    private val permissionRequestsById = pendingPermissionRequests.associateBy { it.requestId }
-
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     init {
@@ -281,14 +322,16 @@ private class MessageCardPanel(
                 when (entry) {
                     is AcpSessionService.MessageEntry.Content -> add(MarkdownPane(entry.text))
                     is AcpSessionService.MessageEntry.PermissionRequest -> {
-                        val request = permissionRequestsById[entry.request.requestId] ?: entry.request
+                        val request = entry.request
+                        val card = PermissionRequestCardPanel(
+                            request = request,
+                            onSubmit = { optionId ->
+                                onPermissionSubmit(request.requestId, optionId)
+                            }
+                        )
+                        onPermissionCardCreated(request.requestId, card)
                         add(
-                            PermissionRequestCardPanel(
-                                request = request,
-                                onSubmit = { optionId ->
-                                    onPermissionSubmit(request.requestId, optionId)
-                                }
-                            )
+                            card
                         )
                     }
                     is AcpSessionService.MessageEntry.Thought ->
@@ -501,10 +544,22 @@ private class MessagePromptStatusIcon(state: MessagePromptState) : JBLabel() {
     }
 }
 
-private class PermissionRequestCardPanel(
+internal class PermissionRequestCardPanel(
     request: AcpSessionService.PermissionRequestInfo,
     onSubmit: (String) -> Unit
 ) : JPanel() {
+    private var currentRequest = request
+    private val titleLabel = JBLabel()
+    private val buttonGroup = ButtonGroup()
+    private val radios = mutableListOf<Pair<AcpSessionService.PermissionOptionInfo, JRadioButton>>()
+    private val submitButton = JButton().apply {
+        alignmentX = LEFT_ALIGNMENT
+        addActionListener {
+            val selectedOption = radios.firstOrNull { (_, radio) -> radio.isSelected }?.first ?: return@addActionListener
+            onSubmit(selectedOption.optionId)
+        }
+    }
+
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     init {
@@ -521,15 +576,39 @@ private class PermissionRequestCardPanel(
                 alignmentX = LEFT_ALIGNMENT
             }
         )
-        add(
-            JBLabel(request.title).apply {
-                foreground = UIUtil.getLabelForeground()
-                border = JBUI.Borders.emptyBottom(8)
-                alignmentX = LEFT_ALIGNMENT
-            }
-        )
+        add(titleLabel.apply {
+            foreground = UIUtil.getLabelForeground()
+            border = JBUI.Borders.emptyBottom(8)
+            alignmentX = LEFT_ALIGNMENT
+        })
+        rebuildOptions()
+    }
 
-        if (request.options.isEmpty()) {
+    fun updateRequest(request: AcpSessionService.PermissionRequestInfo) {
+        val structureChanged =
+            currentRequest.options != request.options || currentRequest.title != request.title
+        currentRequest = request
+        if (structureChanged) {
+            rebuildOptions()
+        } else {
+            applyRequestState()
+        }
+        revalidate()
+        repaint()
+    }
+
+    private fun rebuildOptions() {
+        titleLabel.text = currentRequest.title
+
+        while (componentCount > 2) {
+            remove(2)
+        }
+        while (buttonGroup.elements.hasMoreElements()) {
+            buttonGroup.remove(buttonGroup.elements.nextElement())
+        }
+        radios.clear()
+
+        if (currentRequest.options.isEmpty()) {
             add(
                 JBLabel("No permission options were provided by the agent.").apply {
                     foreground = UIUtil.getContextHelpForeground()
@@ -537,38 +616,35 @@ private class PermissionRequestCardPanel(
                 }
             )
         } else {
-            val buttonGroup = ButtonGroup()
-            val radios = mutableListOf<JRadioButton>()
-            request.options.forEachIndexed { index, option ->
-                val selected =
-                    request.selectedOptionId == option.optionId || (request.selectedOptionId == null && index == 0)
+            currentRequest.options.forEachIndexed { index, option ->
                 val radio = JRadioButton(buildPermissionOptionLabel(option)).apply {
                     isOpaque = false
-                    isSelected = selected
-                    isEnabled = !request.submitted
                     foreground = UIUtil.getLabelForeground()
-                    border = JBUI.Borders.emptyBottom(if (index == request.options.lastIndex) 0 else 6)
+                    border = JBUI.Borders.emptyBottom(if (index == currentRequest.options.lastIndex) 0 else 6)
                     alignmentX = LEFT_ALIGNMENT
                 }
                 buttonGroup.add(radio)
-                radios += radio
+                radios += option to radio
                 add(radio)
             }
 
             add(Box.createVerticalStrut(JBUI.scale(8)))
-            add(
-                JButton(if (request.submitted) "Submitted" else "Submit").apply {
-                    isEnabled = !request.submitted
-                    alignmentX = LEFT_ALIGNMENT
-                    addActionListener {
-                        val selectedIndex = radios.indexOfFirst { it.isSelected }
-                        if (selectedIndex >= 0) {
-                            onSubmit(request.options[selectedIndex].optionId)
-                        }
-                    }
-                }
-            )
+            add(submitButton)
         }
+
+        applyRequestState()
+    }
+
+    private fun applyRequestState() {
+        titleLabel.text = currentRequest.title
+        radios.forEachIndexed { index, (option, radio) ->
+            radio.isSelected =
+                currentRequest.selectedOptionId == option.optionId ||
+                    (currentRequest.selectedOptionId == null && index == 0)
+            radio.isEnabled = !currentRequest.submitted
+        }
+        submitButton.text = if (currentRequest.submitted) "Submitted" else "Submit"
+        submitButton.isEnabled = !currentRequest.submitted
     }
 }
 

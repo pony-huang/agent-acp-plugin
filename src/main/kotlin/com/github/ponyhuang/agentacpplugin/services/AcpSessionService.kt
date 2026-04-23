@@ -1037,26 +1037,6 @@ class AcpSessionService(private val project: Project) : Disposable {
                 request
             }
         }
-        _messages.value = _messages.value.map { message ->
-            if (message.entries.any { it is MessageEntry.PermissionRequest && it.request.requestId == requestId }) {
-                message.copy(
-                    entries = message.entries.map { entry ->
-                        if (entry is MessageEntry.PermissionRequest && entry.request.requestId == requestId) {
-                            entry.copy(
-                                request = entry.request.copy(
-                                    selectedOptionId = optionId,
-                                    submitted = true
-                                )
-                            )
-                        } else {
-                            entry
-                        }
-                    }
-                )
-            } else {
-                message
-            }
-        }
         return true
     }
 

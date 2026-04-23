@@ -50,7 +50,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
                 arrayOf(
                     AcpSessionService.ChatMessage::class.java,
-                    List::class.java,
+                    Function2::class.java,
                     Function2::class.java,
                     Function0::class.java,
                     Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
@@ -65,8 +65,8 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                         thought = "thinking",
                         toolCalls = emptyList()
                     ),
-                    emptyList<AcpSessionService.PermissionRequestInfo>(),
                     ({ _: String, _: String -> } as (String, String) -> Unit),
+                    ({ _: String, _: javax.swing.JComponent -> } as (String, javax.swing.JComponent) -> Unit),
                     ({} as () -> Unit),
                     null,
                     false,
@@ -147,7 +147,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
             arrayOf(
                 AcpSessionService.ChatMessage::class.java,
-                List::class.java,
+                Function2::class.java,
                 Function2::class.java,
                 Function0::class.java,
                 Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
@@ -156,8 +156,8 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             ),
             arrayOf(
                 message,
-                emptyList<AcpSessionService.PermissionRequestInfo>(),
                 ({ _: String, _: String -> } as (String, String) -> Unit),
+                ({ _: String, _: javax.swing.JComponent -> } as (String, javax.swing.JComponent) -> Unit),
                 ({} as () -> Unit),
                 null,
                 false,
@@ -297,7 +297,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
             arrayOf(
                 AcpSessionService.ChatMessage::class.java,
-                List::class.java,
+                Function2::class.java,
                 Function2::class.java,
                 Function0::class.java,
                 Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
@@ -306,8 +306,8 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             ),
             arrayOf(
                 message,
-                emptyList<AcpSessionService.PermissionRequestInfo>(),
                 ({ _: String, _: String -> } as (String, String) -> Unit),
+                ({ _: String, _: javax.swing.JComponent -> } as (String, javax.swing.JComponent) -> Unit),
                 ({} as () -> Unit),
                 null,
                 false,
@@ -449,7 +449,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
             arrayOf(
                 AcpSessionService.ChatMessage::class.java,
-                List::class.java,
+                Function2::class.java,
                 Function2::class.java,
                 Function0::class.java,
                 Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessagePromptState"),
@@ -458,8 +458,8 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             ),
             arrayOf(
                 message,
-                emptyList<AcpSessionService.PermissionRequestInfo>(),
                 ({ _: String, _: String -> } as (String, String) -> Unit),
+                ({ _: String, _: javax.swing.JComponent -> } as (String, javax.swing.JComponent) -> Unit),
                 onCancelPrompt,
                 promptState,
                 false,
