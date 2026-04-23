@@ -260,6 +260,23 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertNotNull(animationTimer.get(statusIcon))
     }
 
+    fun testToolCallRowUsesCancelledStatusIconAndLabel() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-2-cancelled",
+                title = "Search workspace",
+                status = "cancelled",
+                kind = "search"
+            )
+        )
+
+        val statusText = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Cancelled" }
+        val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
+
+        assertNotNull(statusText)
+        assertEquals(AllIcons.Actions.Cancel, statusIcon.icon)
+    }
+
     fun testVisualPanelsUseBannerChromeAndCollapsibleThoughtGroup() {
         val message = AcpSessionService.ChatMessage(
             id = "assistant-2",

@@ -211,6 +211,15 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
             } as ClientSession
         )
         setLoading(true)
+        service.applySessionUpdate(SessionUpdate.AgentMessageChunk(ContentBlock.Text("Working")))
+        service.applySessionUpdate(
+            SessionUpdate.ToolCall(
+                toolCallId = ToolCallId("tool-cancel"),
+                title = "Run command",
+                kind = ToolKind.EXECUTE,
+                status = ToolCallStatus.IN_PROGRESS
+            )
+        )
 
         service.cancel()
 
@@ -218,6 +227,25 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertFalse(service.isLoading.value)
         assertEquals(StopReason.CANCELLED, service.lastStopReason.value)
         assertNotNull(service.sessionUpdatedAt.value)
+        assertEquals("cancelled", service.messages.value.single().toolCalls.single().status)
+        assertTrue(service.activeToolCalls.value.isEmpty())
+    }
+
+    fun testCancelledPromptResponseMarksActiveToolCallsCancelled() {
+        service.applySessionUpdate(SessionUpdate.AgentMessageChunk(ContentBlock.Text("Working")))
+        service.applySessionUpdate(
+            SessionUpdate.ToolCall(
+                toolCallId = ToolCallId("tool-response-cancel"),
+                title = "Search workspace",
+                kind = ToolKind.SEARCH,
+                status = ToolCallStatus.IN_PROGRESS
+            )
+        )
+
+        service.applyPromptResponse(PromptResponse(stopReason = StopReason.CANCELLED))
+
+        assertEquals("cancelled", service.messages.value.single().toolCalls.single().status)
+        assertTrue(service.activeToolCalls.value.isEmpty())
     }
 
     fun testPermissionRequestIsExposedAndCanBeSubmitted() = runBlocking {

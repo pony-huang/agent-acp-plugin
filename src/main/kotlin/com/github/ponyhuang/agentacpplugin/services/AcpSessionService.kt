@@ -45,6 +45,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         private const val ROLE_USER = "user"
         private const val ROLE_ASSISTANT = "assistant"
         private const val SESSION_CONNECT_TIMEOUT_MS = 15_000L
+        private const val TOOL_STATUS_CANCELLED = "cancelled"
     }
 
     private val logger: Logger = Logger.getInstance(AcpSessionService::class.java)
@@ -462,6 +463,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         val session = _currentSession ?: return
         logger.info("[AcpSessionService] Cancelling current operation...")
         session.cancel()
+        markActiveToolCallsCancelled()
         _lastStopReason.value = StopReason.CANCELLED
         _sessionUpdatedAt.value = System.currentTimeMillis()
         _isLoading.value = false
@@ -606,16 +608,14 @@ class AcpSessionService(private val project: Project) : Disposable {
         val toolCallId = update.toolCallId.value
         val title = update.title
         val kind = update.kind?.toUiValue() ?: ToolKind.OTHER.toUiValue()
+        val status = update.status?.toUiValue() ?: ToolCallStatus.PENDING.toUiValue()
 
-        // Track the tool call
-        val currentTools = _activeToolCalls.value.toMutableMap()
-        currentTools[toolCallId] = toolCallId
-        _activeToolCalls.value = currentTools
+        trackToolCallStatus(toolCallId, status)
 
         val toolCallInfo = ToolCallInfo(
             toolCallId = toolCallId,
             title = title,
-            status = update.status?.toUiValue() ?: ToolCallStatus.PENDING.toUiValue(),
+            status = status,
             kind = kind,
             locations = update.locations.map { it.toDisplayString() },
             contentSummary = summarizeToolCallContent(update.content)
@@ -635,8 +635,10 @@ class AcpSessionService(private val project: Project) : Disposable {
     @OptIn(UnstableApi::class)
     private fun handleToolCallUpdate(update: SessionUpdate.ToolCallUpdate) {
         val toolCallId = update.toolCallId.value
+        val updatedStatus = update.status?.toUiValue()
         val updatedSummary = summarizeToolCallContent(update.content)
         val updatedLocations = update.locations?.map { it.toDisplayString() }
+        updatedStatus?.let { trackToolCallStatus(toolCallId, it) }
 
         // Update the tool call in messages
         val messages = _messages.value
@@ -651,7 +653,7 @@ class AcpSessionService(private val project: Project) : Disposable {
                         tc.copy(
                             title = update.title ?: tc.title,
                             kind = update.kind?.toUiValue() ?: tc.kind,
-                            status = update.status?.toUiValue() ?: tc.status,
+                            status = updatedStatus ?: tc.status,
                             locations = updatedLocations ?: tc.locations,
                             contentSummary = updatedSummary ?: tc.contentSummary
                         )
@@ -665,7 +667,7 @@ class AcpSessionService(private val project: Project) : Disposable {
                                     toolCall = entry.toolCall.copy(
                                         title = update.title ?: entry.toolCall.title,
                                         kind = update.kind?.toUiValue() ?: entry.toolCall.kind,
-                                        status = update.status?.toUiValue() ?: entry.toolCall.status,
+                                        status = updatedStatus ?: entry.toolCall.status,
                                         locations = updatedLocations ?: entry.toolCall.locations,
                                         contentSummary = updatedSummary ?: entry.toolCall.contentSummary
                                     )
@@ -775,9 +777,51 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Handle prompt response - stores the stop reason.
      */
     private fun handlePromptResponse(response: PromptResponse) {
+        if (response.stopReason == StopReason.CANCELLED) {
+            markActiveToolCallsCancelled()
+        }
         _lastStopReason.value = response.stopReason
         _sessionUpdatedAt.value = System.currentTimeMillis()
         logger.info("[AcpSessionService] Prompt completed. Stop reason: ${response.stopReason}")
+    }
+
+    private fun trackToolCallStatus(toolCallId: String, status: String) {
+        val currentTools = _activeToolCalls.value.toMutableMap()
+        if (status.isTerminalToolStatus()) {
+            currentTools.remove(toolCallId)
+        } else {
+            currentTools[toolCallId] = toolCallId
+        }
+        _activeToolCalls.value = currentTools
+    }
+
+    private fun markActiveToolCallsCancelled() {
+        val activeToolCallIds = _activeToolCalls.value.keys
+        if (activeToolCallIds.isEmpty()) {
+            return
+        }
+
+        _messages.value = _messages.value.map { message ->
+            val updatedToolCalls = message.toolCalls.map { toolCall ->
+                if (toolCall.toolCallId in activeToolCallIds && !toolCall.status.isTerminalToolStatus()) {
+                    toolCall.copy(status = TOOL_STATUS_CANCELLED)
+                } else {
+                    toolCall
+                }
+            }
+            val updatedEntries = message.entries.map { entry ->
+                if (entry is MessageEntry.ToolCall &&
+                    entry.toolCall.toolCallId in activeToolCallIds &&
+                    !entry.toolCall.status.isTerminalToolStatus()
+                ) {
+                    entry.copy(toolCall = entry.toolCall.copy(status = TOOL_STATUS_CANCELLED))
+                } else {
+                    entry
+                }
+            }
+            message.copy(toolCalls = updatedToolCalls, entries = updatedEntries)
+        }
+        _activeToolCalls.value = emptyMap()
     }
 
     /**
@@ -1092,6 +1136,10 @@ class AcpSessionService(private val project: Project) : Disposable {
             PlanEntryStatus.IN_PROGRESS -> "in_progress"
             PlanEntryStatus.COMPLETED -> "completed"
         }
+    }
+
+    private fun String.isTerminalToolStatus(): Boolean {
+        return this == "completed" || this == "failed" || this == TOOL_STATUS_CANCELLED
     }
 }
 

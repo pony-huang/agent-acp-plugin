@@ -736,6 +736,7 @@ private fun statusIconFor(status: String): Icon {
         "pending" -> AllIcons.Process.Step_passive
         "in_progress" -> AllIcons.Process.Step_1
         "completed" -> AllIcons.General.InspectionsOK
+        "cancelled" -> AllIcons.Actions.Cancel
         "failed" -> AllIcons.General.Error
         else -> AllIcons.General.Information
     }
@@ -746,6 +747,7 @@ private fun String.toDisplayLabel(): String {
         "pending" -> "Queued"
         "in_progress" -> "Running"
         "completed" -> "Done"
+        "cancelled" -> "Cancelled"
         "failed" -> "Failed"
         else -> replace('_', ' ')
     }
