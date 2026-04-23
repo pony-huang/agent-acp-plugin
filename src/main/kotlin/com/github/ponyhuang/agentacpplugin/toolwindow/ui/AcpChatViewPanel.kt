@@ -50,12 +50,48 @@ class AcpChatViewPanel(
         horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
     }
 
+    // Smart scrolling state
+    private var adjustScrollBar = true
+    private var previousValue = -1
+    private var previousMaximum = -1
+
+    private val smartScrollerListener: SmartScrollerListener
+
     init {
         border = JBUI.Borders.empty()
         background = UIUtil.getPanelBackground()
         add(messageScrollPane, BorderLayout.CENTER)
+        smartScrollerListener = SmartScrollerListener()
+        messageScrollPane.verticalScrollBar.addAdjustmentListener(smartScrollerListener)
         bind()
         Disposer.register(parentDisposable, this)
+    }
+
+    private inner class SmartScrollerListener : java.awt.event.AdjustmentListener {
+        override fun adjustmentValueChanged(e: java.awt.event.AdjustmentEvent) {
+            val scrollBar = e.source as JScrollBar
+            val model = scrollBar.model
+            val value = model.value
+            val extent = model.extent
+            val maximum = model.maximum
+
+            val valueChanged = previousValue != value
+            val maximumChanged = previousMaximum != maximum
+
+            if (valueChanged && !maximumChanged) {
+                adjustScrollBar = value + extent >= maximum
+            }
+
+            if (adjustScrollBar) {
+                scrollBar.removeAdjustmentListener(this)
+                val newValue = maximum - extent
+                scrollBar.value = newValue
+                scrollBar.addAdjustmentListener(this)
+            }
+
+            previousValue = value
+            previousMaximum = maximum
+        }
     }
 
     @OptIn(UnstableApi::class)
@@ -86,7 +122,6 @@ class AcpChatViewPanel(
                 return@invokeLater
             }
 
-            val shouldStickToBottom = isNearBottom()
             val visibleMessages = state.messages.filter { it.hasRenderableContent() }
 
             expandedThoughts.retainAll(state.messages.map { it.id }.toSet())
@@ -135,10 +170,6 @@ class AcpChatViewPanel(
 
             messagePanel.revalidate()
             messagePanel.repaint()
-
-            if (shouldStickToBottom) {
-                scrollToBottomAfterLayout()
-            }
         }
     }
 
@@ -202,27 +233,8 @@ class AcpChatViewPanel(
         }
     }
 
-    private fun isNearBottom(): Boolean {
-        val scrollBar = messageScrollPane.verticalScrollBar
-        return scrollBar.value + scrollBar.visibleAmount >= scrollBar.maximum - JBUI.scale(24)
-    }
-
-    private fun scrollToBottom() {
-        val scrollBar = messageScrollPane.verticalScrollBar
-        scrollBar.value = scrollBar.maximum
-    }
-
-    private fun scrollToBottomAfterLayout() {
-        SwingUtilities.invokeLater {
-            messagePanel.revalidate()
-            messagePanel.repaint()
-            SwingUtilities.invokeLater {
-                scrollToBottom()
-            }
-        }
-    }
-
     override fun dispose() {
+        messageScrollPane.verticalScrollBar.removeAdjustmentListener(smartScrollerListener)
         uiScope.cancel()
     }
 }
