@@ -1,6 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.services
 
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +39,7 @@ class AcpSessionPersistenceService(private val project: Project) {
     // In-memory cache of saved sessions
     private val _savedSessions = MutableStateFlow<List<SavedSession>>(emptyList())
     val savedSessions: StateFlow<List<SavedSession>> = _savedSessions.asStateFlow()
+    private val logger: Logger = Logger.getInstance(AcpSessionPersistenceService::class.java)
 
     // Session storage file path
     private val sessionFilePath: Path by lazy {
@@ -172,7 +174,7 @@ class AcpSessionPersistenceService(private val project: Project) {
                 json.decodeFromString<List<SavedSession>>(content)
             }
         } catch (e: Exception) {
-            println("[AcpSessionPersistenceService] Failed to load sessions: ${e.message}")
+            logger.info("[AcpSessionPersistenceService] Failed to load sessions: ${e.message}")
             emptyList()
         }
     }
@@ -181,9 +183,9 @@ class AcpSessionPersistenceService(private val project: Project) {
         try {
             val content = json.encodeToString(sessions)
             sessionFilePath.writeText(content)
-            println("[AcpSessionPersistenceService] Saved ${sessions.size} sessions to $sessionFilePath")
+            logger.info("[AcpSessionPersistenceService] Saved ${sessions.size} sessions to $sessionFilePath")
         } catch (e: Exception) {
-            println("[AcpSessionPersistenceService] Failed to save sessions: ${e.message}")
+            logger.info("[AcpSessionPersistenceService] Failed to save sessions: ${e.message}")
         }
     }
 

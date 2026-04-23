@@ -20,19 +20,12 @@ import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
 import kotlinx.serialization.json.JsonElement
-import java.io.File
 import java.nio.file.Paths
-import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createDirectories
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
-
-/**
- * @author: pony
- */
-private const val STDERR_LABEL = "STDERR:"
 
 fun createProcessStdioTransport(
     coroutineScope: CoroutineScope,
