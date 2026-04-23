@@ -11,6 +11,7 @@ import java.lang.reflect.Constructor
 import java.awt.Component
 import java.awt.Container
 import java.awt.GridBagLayout
+import java.awt.BorderLayout
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.JRadioButton
@@ -179,6 +180,78 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertEquals(thoughtPanel.preferredSize.height, thoughtPanel.maximumSize.height)
         assertEquals(toolRow.preferredSize.height, toolRow.maximumSize.height)
         assertEquals(markdownPane.preferredSize.height, markdownPane.maximumSize.height)
+    }
+
+    fun testAssistantFooterStacksBelowBodyContent() {
+        val card = instantiateMessageCard(
+            AcpSessionService.ChatMessage(
+                id = "assistant-stacked",
+                role = "assistant",
+                content = "A long reply body that should remain fully visible above the completion status.",
+                thought = "Intermediate reasoning",
+                toolCalls = listOf(
+                    AcpSessionService.ToolCallInfo(
+                        toolCallId = "tool-stack",
+                        title = "Read file",
+                        status = "completed",
+                        kind = "read",
+                        contentSummary = "Done"
+                    )
+                )
+            ),
+            messagePromptState("COMPLETED")
+        )
+
+        val host = JPanel(BorderLayout()).apply {
+            setSize(280, 900)
+            add(card, BorderLayout.NORTH)
+        }
+
+        host.doLayout()
+        card.setSize(240, card.preferredSize.height)
+        layoutRecursively(host)
+
+        val toolRow = findByClassName(card, "ToolCallRow") as javax.swing.JComponent
+        val markdownPane = findAllByType(card, javax.swing.JComponent::class.java)
+            .last { it.javaClass.simpleName == "MarkdownPane" }
+        val footer = findByClassName(card, "MessagePromptFooter") as javax.swing.JComponent
+
+        assertTrue(toolRow.y + toolRow.height <= markdownPane.y)
+        assertTrue(markdownPane.y + markdownPane.height <= footer.y)
+    }
+
+    fun testAssistantLongMarkdownKeepsMultipleVisibleRowsAboveFooter() {
+        val card = instantiateMessageCard(
+            AcpSessionService.ChatMessage(
+                id = "assistant-long-markdown",
+                role = "assistant",
+                content = "This is a deliberately long assistant response line that should wrap across multiple rows when the card is narrow. " +
+                    "This is a deliberately long assistant response line that should wrap across multiple rows when the card is narrow. " +
+                    "This is a deliberately long assistant response line that should wrap across multiple rows when the card is narrow."
+            ),
+            messagePromptState("COMPLETED")
+        )
+
+        val host = JPanel(BorderLayout()).apply {
+            setSize(280, 900)
+            add(card, BorderLayout.NORTH)
+        }
+
+        host.doLayout()
+        card.setSize(240, card.preferredSize.height)
+        layoutRecursively(host)
+
+        val markdownPane = findByClassName(card, "MarkdownPane") as javax.swing.JComponent
+        val footer = findByClassName(card, "MessagePromptFooter") as javax.swing.JComponent
+
+        assertTrue(
+            "markdown=${markdownPane.bounds} footer=${footer.bounds} card=${card.bounds} pref=${card.preferredSize}",
+            markdownPane.height > JBUI.scale(32)
+        )
+        assertTrue(
+            "markdown=${markdownPane.bounds} footer=${footer.bounds} card=${card.bounds} pref=${card.preferredSize}",
+            markdownPane.y + markdownPane.height <= footer.y
+        )
     }
 
     fun testPermissionRequestCardRendersOptionsAndSubmitState() {
@@ -515,6 +588,13 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             }
         }
         return results
+    }
+
+    private fun layoutRecursively(root: Component) {
+        if (root is Container) {
+            root.doLayout()
+            root.components.forEach { child -> layoutRecursively(child) }
+        }
     }
 
     private fun createMessagePanelConstraints(row: Int) = java.awt.GridBagConstraints().apply {

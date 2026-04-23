@@ -6,6 +6,7 @@ import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.ColorUtil
@@ -588,6 +589,8 @@ internal class PermissionRequestCardPanel(
     private val radios = mutableListOf<Pair<AcpSessionService.PermissionOptionInfo, JRadioButton>>()
     private val submitButton = JButton().apply {
         alignmentX = LEFT_ALIGNMENT
+        isOpaque = false
+        background = EditorColorsManager.getInstance().globalScheme.defaultBackground
         addActionListener {
             val selectedOption = radios.firstOrNull { (_, radio) -> radio.isSelected }?.first ?: return@addActionListener
             onSubmit(selectedOption.optionId)
@@ -606,7 +609,7 @@ internal class PermissionRequestCardPanel(
         chrome.contentPanel.layout = BoxLayout(chrome.contentPanel, BoxLayout.Y_AXIS)
 
         chrome.contentPanel.add(
-            JBLabel("Permission Request").apply {
+            JBLabel("Allow?").apply {
                 foreground = UIUtil.getContextHelpForeground()
                 border = JBUI.Borders.emptyBottom(6)
                 alignmentX = LEFT_ALIGNMENT
@@ -767,33 +770,6 @@ private class MarkdownPane(content: String) : JEditorPane() {
         foreground = UIUtil.getLabelForeground()
         border = JBUI.Borders.empty()
         editorKit = HTMLEditorKitBuilder.simple()
-        val htmlEditorKit = editorKit as javax.swing.text.html.HTMLEditorKit
-        htmlEditorKit.styleSheet.addRule(
-            """
-            body { font-family: sans-serif; font-size: 12px; color: #${ColorUtil.toHex(UIUtil.getLabelForeground())}; margin: 0; }
-            p { margin: 0 0 8px 0; }
-            pre { background: #${
-                ColorUtil.toHex(
-                    ColorUtil.mix(
-                        UIUtil.getPanelBackground(),
-                        UIUtil.getLabelForeground(),
-                        0.06
-                    )
-                )
-            }; border: 1px solid #${ColorUtil.toHex(JBColor.border())}; padding: 8px; margin: 0 0 8px 0; }
-            code { font-family: monospace; background: #${
-                ColorUtil.toHex(
-                    ColorUtil.mix(
-                        UIUtil.getPanelBackground(),
-                        UIUtil.getLabelForeground(),
-                        0.08
-                    )
-                )
-            }; }
-            ul, ol { margin-top: 0; margin-bottom: 8px; padding-left: 18px; }
-            li { margin-bottom: 4px; }
-            """.trimIndent()
-        )
         text = renderHtml(content)
         caretPosition = 0
     }
