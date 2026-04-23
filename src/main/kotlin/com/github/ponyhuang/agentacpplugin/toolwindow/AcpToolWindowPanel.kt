@@ -198,9 +198,12 @@ class AcpToolWindowPanel(
         uiScope.launch {
             sessionService.isLoading.collectLatest { loading ->
                 runOnEdt {
-                    userInputPanel.setBusy(
-                        if (loading) ToolWindowComposerState.SENDING else ToolWindowComposerState.IDLE
-                    )
+                    val state = when {
+                        loading && !sessionService.isConnected.value -> ToolWindowComposerState.CONNECTING
+                        loading -> ToolWindowComposerState.SENDING
+                        else -> ToolWindowComposerState.IDLE
+                    }
+                    userInputPanel.setBusy(state)
                 }
             }
         }

@@ -64,6 +64,9 @@ class AcpSessionService(private val project: Project) : Disposable {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _isConnecting = MutableStateFlow(false)
+    val isConnecting: StateFlow<Boolean> = _isConnecting.asStateFlow()
+
     // Chat messages
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -225,6 +228,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     @OptIn(UnstableApi::class)
     suspend fun createSession(agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
         _isLoading.value = true
+        _isConnecting.value = true
         try {
             shutdownActiveClient()
             resetDerivedSessionState()
@@ -292,6 +296,7 @@ class AcpSessionService(private val project: Project) : Disposable {
             throw t
         } finally {
             _isLoading.value = false
+            _isConnecting.value = false
         }
     }
 
@@ -301,6 +306,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     @OptIn(UnstableApi::class)
     suspend fun resumeSession(sessionId: String, agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
         _isLoading.value = true
+        _isConnecting.value = true
         try {
             shutdownActiveClient()
             resetDerivedSessionState()
@@ -365,6 +371,7 @@ class AcpSessionService(private val project: Project) : Disposable {
             throw t
         } finally {
             _isLoading.value = false
+            _isConnecting.value = false
         }
     }
 

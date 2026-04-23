@@ -40,6 +40,7 @@ import javax.swing.DefaultListModel
 import javax.swing.JList
 import javax.swing.JButton
 import javax.swing.SwingUtilities
+import javax.swing.Timer
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 
@@ -65,9 +66,11 @@ class AcpUserInputPanel(
 
     private var isSessionConnected = false
     private var isBusy = false
+    private var currentState = ToolWindowComposerState.IDLE
     private var availableCommands: List<SessionCommandItem> = emptyList()
     private var filteredCommands: List<SessionCommandItem> = emptyList()
     private var commandPopup: JBPopup? = null
+    private var connectionAnimationIcon: AnimatedIcon? = null
 
     private val commandListModel = DefaultListModel<SessionCommandItem>()
     private val commandList = JBList(commandListModel).apply {
@@ -225,11 +228,31 @@ class AcpUserInputPanel(
     }
 
     fun setBusy(state: ToolWindowComposerState) {
+        val previousState = currentState
+        currentState = state
         isBusy = state != ToolWindowComposerState.IDLE
         updateControlStates()
         userInputTextArea.isEnabled = true
         if (isBusy) {
             hideCommandPopup()
+        }
+
+        // Handle connection animation
+        when (state) {
+            ToolWindowComposerState.CONNECTING -> {
+                if (previousState != ToolWindowComposerState.CONNECTING) {
+                    connectionAnimationIcon = AnimatedIcon().apply {
+                        startAnimation()
+                    }
+                    connectionButton.icon = connectionAnimationIcon
+                }
+            }
+            else -> {
+                connectionAnimationIcon?.stopAnimation()
+                connectionAnimationIcon = null
+                // Restore appropriate icon based on connection state
+                connectionButton.icon = if (isSessionConnected) AllIcons.Actions.Suspend else AllIcons.Actions.Execute
+            }
         }
     }
 
@@ -502,5 +525,50 @@ class AcpUserInputPanel(
 
     override fun dispose() {
         hideCommandPopup()
+    }
+
+    private inner class AnimatedIcon : javax.swing.Icon {
+        private val animatedIcons = arrayOf(
+            AllIcons.Process.Step_1,
+            AllIcons.Process.Step_2,
+            AllIcons.Process.Step_3,
+            AllIcons.Process.Step_4,
+            AllIcons.Process.Step_5,
+            AllIcons.Process.Step_6,
+            AllIcons.Process.Step_7,
+            AllIcons.Process.Step_8
+        )
+        private val animationTimer = Timer(60, null)
+        private var animationFrame = 0
+        private var isAnimating = false
+
+        init {
+            animationTimer.addActionListener {
+                animationFrame = (animationFrame + 1) % animatedIcons.size
+                repaint()
+            }
+            animationTimer.isRepeats = true
+        }
+
+        fun startAnimation() {
+            animationFrame = 0
+            isAnimating = true
+            animationTimer.start()
+        }
+
+        fun stopAnimation() {
+            isAnimating = false
+            animationTimer.stop()
+        }
+
+        override fun paintIcon(c: java.awt.Component?, g: Graphics, x: Int, y: Int) {
+            if (animationFrame in animatedIcons.indices) {
+                animatedIcons[animationFrame].paintIcon(c, g, x, y)
+            }
+        }
+
+        override fun getIconWidth(): Int = AllIcons.Process.Step_1.iconWidth
+
+        override fun getIconHeight(): Int = AllIcons.Process.Step_1.iconHeight
     }
 }
