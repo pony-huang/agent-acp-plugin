@@ -73,7 +73,7 @@ class ModelComboBoxAction(
     }
 
     // AgentListener implementation
-    override fun onAgentSelected(agent: AgentRegistry.AgentDefinition) {
+    override fun onAgentSelected(agent: AgentRegistry.InstalledAgent) {
         // Models are UNSTABLE - currently using mock data
         // In the future, could filter models based on agent capabilities
     }

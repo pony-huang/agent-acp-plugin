@@ -301,8 +301,18 @@ class AcpUserInputPanel(
         userInputTextArea.text = ""
     }
 
-    fun selectedAgent(): AgentRegistry.AgentDefinition? =
+    fun selectedAgent(): AgentRegistry.InstalledAgent? =
         agentComboBoxAction.getSelectedAgent()?.agentDefinition
+
+    fun updateAgents(agentItems: List<AgentComboBoxAction.AgentItem>) {
+        val previousAgentId = agentComboBoxAction.getSelectedAgent()?.id
+        agentComboBoxAction.updateAgents(agentItems)
+        if (agentComboBoxAction.getSelectedAgent()?.id != previousAgentId) {
+            onAgentChanged(agentComboBoxAction.getSelectedAgent())
+        }
+        updateControlStates()
+        repaint()
+    }
 
     private fun updateControlStates() {
         val hasSelectedAgent = agentComboBoxAction.getSelectedAgent() != null

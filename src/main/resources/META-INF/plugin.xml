@@ -10,8 +10,14 @@
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity implementation="com.github.ponyhuang.agentacpplugin.startup.MyProjectActivity" />
         <toolWindow factoryClass="com.github.ponyhuang.agentacpplugin.toolwindow.AcpToolWindowFactory" id="ACP Chat"/>
+        <applicationService serviceImplementation="com.github.ponyhuang.agentacpplugin.services.AcpAgentRegistryService"/>
+        <applicationService serviceImplementation="com.github.ponyhuang.agentacpplugin.services.AcpAgentInstallationService"/>
         <applicationService serviceImplementation="com.github.ponyhuang.agentacpplugin.settings.AcpPluginSettings"/>
-        <configurable instance="com.github.ponyhuang.agentacpplugin.settings.AcpSettingsConfigurable" id="ACPChatSettings"/>
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.github.ponyhuang.agentacpplugin.settings.AcpSettingsConfigurable"
+                id="ACPChatSettings"
+                displayName="ACP Chat"/>
     </extensions>
 
 </idea-plugin>

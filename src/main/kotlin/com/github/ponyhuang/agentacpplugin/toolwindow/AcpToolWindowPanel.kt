@@ -61,19 +61,6 @@ class AcpToolWindowPanel(
     // Create agent selection notifier for linkage
     private val agentNotifier = AgentNotifier()
 
-    // Get available agents from config
-    private val availableAgents = AgentRegistry.getAvailableAgents(configService)
-
-    // Create AgentItem list
-    private val agentItems = availableAgents.map { agent ->
-        AgentComboBoxAction.AgentItem(
-            id = agent.id,
-            displayName = agent.displayName,
-            description = agent.description,
-            agentDefinition = agent
-        )
-    }
-
     private val conversationPanel = AcpChatViewPanel(project, disposable)
     private val conversationAcpChatViewToolbar = AcpChatViewToolbar(
         isLoading = { sessionService.isLoading.value },
@@ -89,7 +76,7 @@ class AcpToolWindowPanel(
     // Initialize userInputPanel with linkage mechanism (callbacks set in init block)
     private val userInputPanel = AcpUserInputPanel(
         project = project,
-        agentItems = agentItems,
+        agentItems = buildAgentItems(),
         agentNotifier = agentNotifier,
         onConnectionToggle = {},
         onModelChanged = { model -> logger.info("Model changed: ${model.id}") },
@@ -195,6 +182,14 @@ class AcpToolWindowPanel(
         }
         userInputPanel.setBusy(ToolWindowComposerState.IDLE)
         userInputPanel.setSessionConnected(false)
+        uiScope.launch {
+            configService.configChanges.collectLatest {
+                runOnEdt {
+                    userInputPanel.updateAgents(buildAgentItems())
+                    conversationAcpChatViewToolbar.update()
+                }
+            }
+        }
         uiScope.launch {
             sessionService.isLoading.collectLatest { loading ->
                 runOnEdt {
@@ -328,7 +323,7 @@ class AcpToolWindowPanel(
     }
 
     internal fun showSessionPopup(
-        agent: AgentRegistry.AgentDefinition,
+        agent: AgentRegistry.InstalledAgent,
         cwd: String,
         sessions: List<AcpSessionService.SessionListItem>
     ) {
@@ -389,7 +384,7 @@ class AcpToolWindowPanel(
     }
 
     internal fun resumeSession(
-        agent: AgentRegistry.AgentDefinition,
+        agent: AgentRegistry.InstalledAgent,
         cwd: String,
         sessionId: String
     ) {
@@ -435,6 +430,33 @@ class AcpToolWindowPanel(
 
     private fun runOnEdt(action: () -> Unit) {
         ApplicationManager.getApplication().invokeLater(action)
+    }
+
+    private fun buildAgentItems(): List<AgentComboBoxAction.AgentItem> {
+        return AgentRegistry.getAvailableAgents(configService).map { agent ->
+            AgentComboBoxAction.AgentItem(
+                id = agent.id,
+                displayName = agent.displayName,
+                description = buildAgentDescription(agent),
+                agentDefinition = agent
+            )
+        }
+    }
+
+    private fun buildAgentDescription(agent: AgentRegistry.InstalledAgent): String {
+        val parts = buildList {
+            if (agent.description.isNotBlank()) {
+                add(agent.description)
+            }
+            if (agent.version.isNotBlank()) {
+                add("v${agent.version}")
+            }
+            add(agent.installMethod.name.lowercase())
+            if (agent.sourceLabel.isNotBlank()) {
+                add(agent.sourceLabel)
+            }
+        }
+        return parts.joinToString(" • ")
     }
 
     private fun buildSessionSubtitle(session: AcpSessionService.SessionListItem): String {

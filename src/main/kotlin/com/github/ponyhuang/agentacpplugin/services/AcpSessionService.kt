@@ -54,7 +54,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     // Current agent definition (from our config, not from ACP agent)
-    private var currentAgentDefinition: AgentRegistry.AgentDefinition? = null
+    private var currentAgentDefinition: AgentRegistry.InstalledAgent? = null
 
 
     // Connection state
@@ -226,7 +226,7 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Handles authentication if required by the agent.
      */
     @OptIn(UnstableApi::class)
-    suspend fun createSession(agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
+    suspend fun createSession(agentDefinition: AgentRegistry.InstalledAgent, cwd: String) {
         _isLoading.value = true
         _isConnecting.value = true
         try {
@@ -304,7 +304,7 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Resume an existing ACP session with the specified session ID.
      */
     @OptIn(UnstableApi::class)
-    suspend fun resumeSession(sessionId: String, agentDefinition: AgentRegistry.AgentDefinition, cwd: String) {
+    suspend fun resumeSession(sessionId: String, agentDefinition: AgentRegistry.InstalledAgent, cwd: String) {
         _isLoading.value = true
         _isConnecting.value = true
         try {
@@ -377,7 +377,7 @@ class AcpSessionService(private val project: Project) : Disposable {
 
     @OptIn(UnstableApi::class)
     suspend fun listSessions(
-        agentDefinition: AgentRegistry.AgentDefinition,
+        agentDefinition: AgentRegistry.InstalledAgent,
         cwd: String
     ): List<SessionListItem> = withContext(Dispatchers.IO) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

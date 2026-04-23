@@ -17,17 +17,28 @@ import javax.swing.JComponent
  * @author: pony
  */
 class AgentComboBoxAction(
-    private val availableAgents: List<AgentItem>,
+    availableAgents: List<AgentItem>,
     private val onAgentSelected: (AgentItem) -> Unit = {},
     private val agentNotifier: AgentNotifier? = null
 ) : ComboBoxAction(), DumbAware {
     private val logger = Logger.getInstance(AgentComboBoxAction::class.java)
 
     private var selectedAgent: AgentItem? = null
+    private var availableAgents: List<AgentItem> = availableAgents
 
     fun getSelectedAgent(): AgentItem? = selectedAgent
 
     fun hasSelectedAgent(): Boolean = selectedAgent != null
+
+    fun updateAgents(newAgents: List<AgentItem>) {
+        availableAgents = newAgents
+        selectedAgent = selectedAgent?.let { current ->
+            newAgents.find { it.id == current.id }
+        }
+        if (selectedAgent == null) {
+            agentNotifier?.notifyAgentDeselected()
+        }
+    }
 
     override fun createPopupActionGroup(
         component: JComponent,
@@ -79,6 +90,6 @@ class AgentComboBoxAction(
         val id: String,
         val displayName: String,
         val description: String,
-        val agentDefinition: AgentRegistry.AgentDefinition,
+        val agentDefinition: AgentRegistry.InstalledAgent,
     )
 }

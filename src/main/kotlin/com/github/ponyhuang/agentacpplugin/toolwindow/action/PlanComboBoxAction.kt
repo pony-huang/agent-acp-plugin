@@ -70,7 +70,7 @@ class PlanComboBoxAction(
     }
 
     // AgentListener implementation
-    override fun onAgentSelected(agent: AgentRegistry.AgentDefinition) {
+    override fun onAgentSelected(agent: AgentRegistry.InstalledAgent) {
         // Plans could be filtered based on agent capabilities in the future
     }
 
