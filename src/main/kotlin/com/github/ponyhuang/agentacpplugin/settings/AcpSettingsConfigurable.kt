@@ -1,7 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.settings
 
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentsConfigService
-import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.JBColor
