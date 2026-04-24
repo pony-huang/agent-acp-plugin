@@ -2,6 +2,8 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.components.ActionLink
@@ -12,9 +14,12 @@ import java.awt.Component
 import java.awt.Container
 import java.awt.GridBagLayout
 import java.awt.BorderLayout
+import java.lang.reflect.Method
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.JRadioButton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 
 class AcpConversationPanelTest : BasePlatformTestCase() {
     private val noOpPermissionSubmit: (String, String) -> Unit = { _, _ -> }
@@ -252,6 +257,73 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             "markdown=${markdownPane.bounds} footer=${footer.bounds} card=${card.bounds} pref=${card.preferredSize}",
             markdownPane.y + markdownPane.height <= footer.y
         )
+    }
+
+    fun testConversationIncrementalMarkdownUpdateRelayoutsRowHeight() {
+        val disposable = Disposer.newDisposable()
+        val panel = AcpChatViewPanel(project, disposable)
+        try {
+            val host = JPanel(BorderLayout()).apply {
+                setSize(320, 900)
+                add(panel, BorderLayout.CENTER)
+            }
+            val initialMessage = AcpSessionService.ChatMessage(
+                id = "assistant-streaming",
+                role = "assistant",
+                content = "Short reply"
+            )
+            renderConversation(panel, listOf(initialMessage))
+            layoutRecursively(host)
+
+            val initialRow = mountedMessageRowComponent(panel, 0)
+            val initialHeight = initialRow.height
+            val initialMarkdownHeight =
+                (findByClassName(initialRow, "MarkdownPane") as javax.swing.JComponent).height
+
+            val updatedMessage = initialMessage.copy(
+                content = "This is a deliberately longer assistant response that should wrap across multiple lines after an incremental update. " +
+                    "This is a deliberately longer assistant response that should wrap across multiple lines after an incremental update."
+            )
+            renderConversation(panel, listOf(updatedMessage))
+            layoutRecursively(host)
+
+            val updatedRow = mountedMessageRowComponent(panel, 0)
+            val markdownPane = findByClassName(updatedRow, "MarkdownPane") as javax.swing.JComponent
+
+            assertSame(initialRow, updatedRow)
+            assertTrue("row=${updatedRow.bounds} pref=${updatedRow.preferredSize}", updatedRow.height > initialHeight)
+            assertTrue("markdown=${markdownPane.bounds}", markdownPane.height > initialMarkdownHeight)
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testUserMessageContentRemainsVisibleAfterRender() {
+        val disposable = Disposer.newDisposable()
+        val panel = AcpChatViewPanel(project, disposable)
+        try {
+            val host = JPanel(BorderLayout()).apply {
+                setSize(320, 400)
+                add(panel, BorderLayout.CENTER)
+            }
+            val userMessage = AcpSessionService.ChatMessage(
+                id = "user-visible",
+                role = "user",
+                content = "User prompt content should stay visible."
+            )
+
+            renderConversation(panel, listOf(userMessage))
+            layoutRecursively(host)
+
+            val row = mountedMessageRowComponent(panel, 0)
+            val markdownPane = findByClassName(row, "MarkdownPane") as javax.swing.JEditorPane
+
+            assertTrue("row=${row.bounds} pref=${row.preferredSize}", row.height > 0)
+            assertTrue("markdown=${markdownPane.bounds}", markdownPane.height > 0)
+            assertTrue(markdownPane.text.contains("User prompt content should stay visible."))
+        } finally {
+            Disposer.dispose(disposable)
+        }
     }
 
     fun testPermissionRequestCardRendersOptionsAndSubmitState() {
@@ -506,6 +578,139 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertEquals(AllIcons.General.Warning, statusIcon.icon)
     }
 
+    fun testConversationRenderReusesRowComponentForSameMessageId() {
+        val disposable = Disposer.newDisposable()
+        val panel = AcpChatViewPanel(project, disposable)
+        try {
+            val initialMessage = AcpSessionService.ChatMessage(
+                id = "assistant-stable",
+                role = "assistant",
+                content = "Hello"
+            )
+            renderConversation(panel, listOf(initialMessage))
+
+            val firstComponent = messageRowComponent(panel, "assistant-stable")
+            val updatedMessage = initialMessage.copy(content = "Hello again")
+            renderConversation(panel, listOf(updatedMessage))
+
+            val secondComponent = messageRowComponent(panel, "assistant-stable")
+            val renderedMessage = secondComponent.javaClass.getDeclaredMethod("getMessage").invoke(secondComponent) as AcpSessionService.ChatMessage
+
+            assertSame(firstComponent, secondComponent)
+            assertEquals("Hello again", renderedMessage.content)
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testThoughtExpansionStateSurvivesUnrelatedMessageUpdate() {
+        val disposable = Disposer.newDisposable()
+        val panel = AcpChatViewPanel(project, disposable)
+        try {
+            val thoughtMessage = AcpSessionService.ChatMessage(
+                id = "assistant-thought",
+                role = "assistant",
+                content = "Answer",
+                entries = listOf(
+                    AcpSessionService.MessageEntry.Thought("thinking"),
+                    AcpSessionService.MessageEntry.Content("Answer")
+                )
+            )
+            val secondMessage = AcpSessionService.ChatMessage(
+                id = "assistant-other",
+                role = "assistant",
+                content = "Other"
+            )
+            renderConversation(panel, listOf(thoughtMessage, secondMessage))
+
+            expandedThoughts(panel).add("assistant-thought")
+            renderConversation(panel, listOf(thoughtMessage, secondMessage.copy(content = "Other updated")))
+
+            val rowComponent = messageRowComponent(panel, "assistant-thought")
+            val thoughtPanel = findByClassName(rowComponent, "ThoughtPanel") as javax.swing.JComponent
+            val contentPanel = thoughtPanel.javaClass.getDeclaredField("contentPanel").apply {
+                isAccessible = true
+            }.get(thoughtPanel) as JPanel
+
+            assertTrue(contentPanel.isVisible)
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testPermissionCardComponentIsReusedForRequestStateUpdate() {
+        val disposable = Disposer.newDisposable()
+        val panel = AcpChatViewPanel(project, disposable)
+        try {
+            val initialRequest = AcpSessionService.PermissionRequestInfo(
+                requestId = "request-stable",
+                toolCallId = "tool-stable",
+                title = "Run command",
+                options = listOf(
+                    AcpSessionService.PermissionOptionInfo(
+                        optionId = "allow-once",
+                        label = "Allow once",
+                        kind = "allow_once"
+                    )
+                ),
+                selectedOptionId = null,
+                submitted = false
+            )
+            val updatedRequest = initialRequest.copy(
+                selectedOptionId = "allow-once",
+                submitted = true
+            )
+            val message = permissionMessage("assistant-permission", initialRequest)
+            renderConversation(panel, listOf(message))
+
+            val firstCard = permissionCard(panel, "request-stable")
+            renderConversation(panel, listOf(permissionMessage("assistant-permission", updatedRequest)))
+
+            val secondCard = permissionCard(panel, "request-stable")
+            val submitButton = findAllByType(secondCard, JButton::class.java).single()
+
+            assertSame(firstCard, secondCard)
+            assertEquals("Submitted", submitButton.text)
+            assertFalse(submitButton.isEnabled)
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testConversationRenderRebuildsRowWhenEntryStructureChanges() {
+        val disposable = Disposer.newDisposable()
+        val panel = AcpChatViewPanel(project, disposable)
+        try {
+            val initialMessage = AcpSessionService.ChatMessage(
+                id = "assistant-structure",
+                role = "assistant",
+                content = "Body"
+            )
+            renderConversation(panel, listOf(initialMessage))
+            val firstComponent = messageRowComponent(panel, "assistant-structure")
+
+            val updatedMessage = AcpSessionService.ChatMessage(
+                id = "assistant-structure",
+                role = "assistant",
+                content = "Body",
+                entries = listOf(
+                    AcpSessionService.MessageEntry.Thought("thinking"),
+                    AcpSessionService.MessageEntry.Content("Body")
+                )
+            )
+            renderConversation(panel, listOf(updatedMessage))
+
+            val secondComponent = messageRowComponent(panel, "assistant-structure")
+            val mountedComponent = mountedMessageRowComponent(panel, 0)
+
+            assertNotSame(firstComponent, secondComponent)
+            assertSame(secondComponent, mountedComponent)
+            assertNotNull(findByClassName(mountedComponent, "ThoughtPanel"))
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
     private fun instantiateToolCallRow(toolCall: AcpSessionService.ToolCallInfo): javax.swing.JComponent {
         return instantiatePrivatePanel(
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.ToolCallRow",
@@ -618,5 +823,78 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         val template = findByClassName(component, "MessageTemplatePanel")
         assertNotNull(template)
         assertNotNull(findByClassName(component, "TemplateContentPanel"))
+    }
+
+    private fun renderConversation(
+        panel: AcpChatViewPanel,
+        messages: List<AcpSessionService.ChatMessage>,
+        isLoading: Boolean = false,
+        lastStopReason: com.agentclientprotocol.model.StopReason? = null
+    ) {
+        disableBinding(panel)
+        val stateClass = Class.forName("com.github.ponyhuang.agentacpplugin.toolwindow.ui.ConversationViewState")
+        val constructor = stateClass.getDeclaredConstructor(List::class.java, java.lang.Boolean.TYPE, com.agentclientprotocol.model.StopReason::class.java).apply {
+            isAccessible = true
+        }
+        val state = constructor.newInstance(messages, isLoading, lastStopReason)
+        val renderMethod: Method = panel.javaClass.getDeclaredMethod("render", stateClass).apply {
+            isAccessible = true
+        }
+        ApplicationManager.getApplication().invokeAndWait {
+            renderMethod.invoke(panel, state)
+        }
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+    }
+
+    private fun disableBinding(panel: AcpChatViewPanel) {
+        val uiScope = panel.javaClass.getDeclaredField("uiScope").apply {
+            isAccessible = true
+        }.get(panel) as CoroutineScope
+        uiScope.cancel()
+    }
+
+    private fun messageRowComponent(panel: AcpChatViewPanel, messageId: String): javax.swing.JComponent {
+        val controllers = panel.javaClass.getDeclaredField("messageRowControllers").apply {
+            isAccessible = true
+        }.get(panel) as Map<*, *>
+        val controller = controllers[messageId]!!
+        val componentField = controller.javaClass.getDeclaredField("component").apply {
+            isAccessible = true
+        }
+        return componentField.get(controller) as javax.swing.JComponent
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun expandedThoughts(panel: AcpChatViewPanel): MutableSet<String> {
+        return panel.javaClass.getDeclaredField("expandedThoughts").apply {
+            isAccessible = true
+        }.get(panel) as MutableSet<String>
+    }
+
+    private fun permissionCard(panel: AcpChatViewPanel, requestId: String): javax.swing.JComponent {
+        val cards = panel.javaClass.getDeclaredField("permissionCardsByRequestId").apply {
+            isAccessible = true
+        }.get(panel) as Map<*, *>
+        return cards[requestId] as javax.swing.JComponent
+    }
+
+    private fun mountedMessageRowComponent(panel: AcpChatViewPanel, rowIndex: Int): javax.swing.JComponent {
+        val messagePanel = panel.javaClass.getDeclaredField("messagePanel").apply {
+            isAccessible = true
+        }.get(panel) as JPanel
+        return messagePanel.components[rowIndex] as javax.swing.JComponent
+    }
+
+    private fun permissionMessage(
+        messageId: String,
+        request: AcpSessionService.PermissionRequestInfo
+    ): AcpSessionService.ChatMessage {
+        return AcpSessionService.ChatMessage(
+            id = messageId,
+            role = "assistant",
+            content = "",
+            entries = listOf(AcpSessionService.MessageEntry.PermissionRequest(request))
+        )
     }
 }
