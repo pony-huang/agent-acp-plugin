@@ -23,6 +23,11 @@ Use Java/Kotlin toolchain 21 as configured in Gradle.
 - Keep services focused and project-scoped where appropriate (`@Service(Service.Level.PROJECT)`).
 - For ACP client work, prefer clear transport/session abstractions and keep Swing UI code separated from protocol/state logic.
 
+## Internationalization (i18n)
+- All user-visible strings must use `MyBundle.message()` (no hardcoded strings)
+- Resource files: `messages/MyBundle.properties` (English) and `messages/MyBundle_zh.properties` (Chinese)
+- Add keys to both files when introducing new UI strings
+
 ## ACP Reference Baseline
 - Protocol overview: https://agentclientprotocol.com/protocol/overview
 - Kotlin SDK: https://github.com/agentclientprotocol/kotlin-sdk
