@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
@@ -15,6 +16,7 @@ class AcpChatViewToolbar(
     private val isLoading: () -> Boolean,
     private val isListingSessions: () -> Boolean = { false },
     private val hasSelectedAgent: () -> Boolean = { false },
+    private val onNewSession: () -> Unit = {},
     private val onShowSessions: () -> Unit = {},
     private val onCancel: () -> Unit
 ) : JPanel(), Disposable {
@@ -27,9 +29,34 @@ class AcpChatViewToolbar(
     )
     private val sessionsLoadingIndicator = JLabel(AnimatedIcon.Default.INSTANCE).apply {
         isVisible = false
-        toolTipText = "Loading sessions..."
+        toolTipText = MyBundle.message("toolbar.loadingSessions")
     }
-    private val sessionsAction = object : DumbAwareAction("Sessions", "List and resume ACP sessions", AllIcons.Actions.ListFiles) {
+    private val newSessionAction = object : DumbAwareAction(
+        MyBundle.message("toolbar.newSession"),
+        MyBundle.message("toolbar.newSessionDescription"),
+        AllIcons.General.Add
+    ) {
+        @Suppress("OVERRIDE_DEPRECATION")
+        override fun displayTextInToolbar(): Boolean = true
+
+        override fun actionPerformed(e: AnActionEvent) {
+            if (!isNewSessionActionEnabled()) {
+                return
+            }
+            onNewSession()
+        }
+
+        override fun update(e: AnActionEvent) {
+            e.presentation.isVisible = true
+            e.presentation.isEnabled = isNewSessionActionEnabled()
+        }
+    }
+    private val sessionsAction = object : DumbAwareAction(
+        MyBundle.message("toolbar.sessions"),
+        MyBundle.message("toolbar.sessionsDescription"),
+        AllIcons.Actions.ListFiles
+    ) {
+        @Suppress("OVERRIDE_DEPRECATION")
         override fun displayTextInToolbar(): Boolean = true
 
         override fun actionPerformed(e: AnActionEvent) {
@@ -46,6 +73,7 @@ class AcpChatViewToolbar(
     }
 
     init {
+        actionGroup.add(newSessionAction)
         actionGroup.add(sessionsAction)
         layout = FlowLayout(FlowLayout.LEFT, 0, 0)
         isOpaque = true
@@ -54,12 +82,15 @@ class AcpChatViewToolbar(
         toolbar.targetComponent = this
         add(toolbar.component)
         add(sessionsLoadingIndicator)
+        @Suppress("DEPRECATION")
+        toolbar.updateActionsImmediately()
     }
 
     fun update() {
         runOnEdt {
             sessionsLoadingIndicator.isVisible = isListingSessions()
-            toolbar.updateActionsAsync()
+            @Suppress("DEPRECATION")
+            toolbar.updateActionsImmediately()
             revalidate()
             repaint()
         }
@@ -67,7 +98,13 @@ class AcpChatViewToolbar(
 
     internal fun isStopActionEnabled(): Boolean = false
 
-    internal fun performStopAction() = Unit
+    internal fun isNewSessionActionEnabled(): Boolean = hasSelectedAgent() && !isLoading() && !isListingSessions()
+
+    internal fun performNewSessionAction() {
+        if (isNewSessionActionEnabled()) {
+            onNewSession()
+        }
+    }
 
     internal fun isSessionActionEnabled(): Boolean = hasSelectedAgent() && !isLoading() && !isListingSessions()
 

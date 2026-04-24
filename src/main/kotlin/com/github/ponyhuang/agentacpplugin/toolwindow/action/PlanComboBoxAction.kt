@@ -1,6 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.action
 
 import com.agentclientprotocol.model.SessionMode
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AgentListener
 import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
 import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
@@ -60,7 +61,7 @@ class PlanComboBoxAction(
     }
 
     private fun refreshPresentation() {
-        val text = selectedPlan?.displayName ?: "Select Plan"
+        val text = selectedPlan?.displayName ?: MyBundle.message("combobox.selectPlan")
         templatePresentation.text = text
         buttonComponent?.let { button ->
             button.text = text
@@ -110,7 +111,7 @@ class PlanComboBoxAction(
     ): JComponent {
         val button = createComboBoxButton(presentation)
         buttonComponent = button
-        button.text = selectedPlan?.displayName ?: "Select Plan"
+        button.text = selectedPlan?.displayName ?: MyBundle.message("combobox.selectPlan")
         button.setForeground(EditorColorsManager.getInstance().globalScheme.defaultForeground)
         button.setBorder(null)
         button.putClientProperty("JButton.backgroundColor", Color(0, 0, 0, 0))
@@ -120,7 +121,7 @@ class PlanComboBoxAction(
 
     override fun update(event: AnActionEvent) {
         super.update(event)
-        event.presentation.text = selectedPlan?.displayName ?: "Select Plan"
+        event.presentation.text = selectedPlan?.displayName ?: MyBundle.message("combobox.selectPlan")
         event.presentation.isVisible = true
         event.presentation.isEnabled = plans.isNotEmpty()
     }

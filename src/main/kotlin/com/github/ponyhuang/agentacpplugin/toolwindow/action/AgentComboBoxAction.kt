@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.action
 
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
 import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
 import com.intellij.openapi.actionSystem.AnAction
@@ -73,7 +74,7 @@ class AgentComboBoxAction(
         place: String
     ): JComponent {
         val button = createComboBoxButton(presentation)
-        button.text = selectedAgent?.displayName ?: "Select Agent"
+        button.text = selectedAgent?.displayName ?: MyBundle.message("combobox.selectAgent")
         button.setForeground(EditorColorsManager.getInstance().globalScheme.defaultForeground)
         button.setBorder(null)
         button.putClientProperty("JButton.backgroundColor", Color(0, 0, 0, 0))
@@ -82,7 +83,7 @@ class AgentComboBoxAction(
 
     override fun update(event: AnActionEvent) {
         super.update(event)
-        event.presentation.text = selectedAgent?.displayName ?: "Select Agent"
+        event.presentation.text = selectedAgent?.displayName ?: MyBundle.message("combobox.selectAgent")
         event.presentation.isVisible = true
     }
 

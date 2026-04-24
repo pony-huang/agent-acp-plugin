@@ -1,6 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
 import com.agentclientprotocol.model.StopReason
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.icons.AllIcons
 import com.intellij.util.ui.HTMLEditorKitBuilder
@@ -114,16 +115,16 @@ internal fun toolKindDisplay(kind: String?): String {
 
 private fun kindLabel(kind: String?): String {
     return when (kind) {
-        "read" -> "Read"
-        "edit" -> "Edit"
-        "delete" -> "Delete"
-        "move" -> "Move"
-        "search" -> "Search"
-        "execute" -> "Run"
-        "think" -> "Think"
-        "fetch" -> "Fetch"
-        "switch_mode" -> "Mode"
-        else -> "Tool"
+        "read" -> MyBundle.message("toolkind.read")
+        "edit" -> MyBundle.message("toolkind.edit")
+        "delete" -> MyBundle.message("toolkind.delete")
+        "move" -> MyBundle.message("toolkind.move")
+        "search" -> MyBundle.message("toolkind.search")
+        "execute" -> MyBundle.message("toolkind.execute")
+        "think" -> MyBundle.message("toolkind.think")
+        "fetch" -> MyBundle.message("toolkind.fetch")
+        "switch_mode" -> MyBundle.message("toolkind.switchMode")
+        else -> MyBundle.message("toolkind.tool")
     }
 }
 
@@ -140,11 +141,11 @@ internal fun statusIconFor(status: String): Icon {
 
 internal fun String.toDisplayLabel(): String {
     return when (this) {
-        "pending" -> "Queued"
-        "in_progress" -> "Running"
-        "completed" -> "Done"
-        "cancelled" -> "Cancelled"
-        "failed" -> "Failed"
+        "pending" -> MyBundle.message("status.queued")
+        "in_progress" -> MyBundle.message("status.running")
+        "completed" -> MyBundle.message("status.done")
+        "cancelled" -> MyBundle.message("status.cancelled")
+        "failed" -> MyBundle.message("status.failed")
         else -> replace('_', ' ')
     }
 }

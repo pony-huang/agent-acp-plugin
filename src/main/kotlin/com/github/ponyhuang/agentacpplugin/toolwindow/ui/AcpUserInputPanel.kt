@@ -3,6 +3,7 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 import com.agentclientprotocol.annotations.UnstableApi
 import com.agentclientprotocol.model.ModelInfo
 import com.agentclientprotocol.model.SessionMode
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
 import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
 import com.github.ponyhuang.agentacpplugin.toolwindow.ToolWindowComposerState
@@ -13,9 +14,9 @@ import com.intellij.icons.AllIcons
 import com.intellij.ide.DataManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.openapi.project.Project
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleTextAttributes
@@ -24,6 +25,7 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.dsl.builder.AlignX
+import com.intellij.ui.dsl.builder.TopGap
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.components.BorderLayoutPanel
@@ -36,11 +38,7 @@ import java.awt.event.KeyEvent
 import java.awt.geom.Area
 import java.awt.geom.Rectangle2D
 import java.awt.geom.RoundRectangle2D
-import javax.swing.DefaultListModel
-import javax.swing.JList
-import javax.swing.JButton
-import javax.swing.SwingUtilities
-import javax.swing.Timer
+import javax.swing.*
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 
@@ -75,7 +73,7 @@ class AcpUserInputPanel(
     private val commandListModel = DefaultListModel<SessionCommandItem>()
     private val commandList = JBList(commandListModel).apply {
         visibleRowCount = 8
-        selectionMode = javax.swing.ListSelectionModel.SINGLE_SELECTION
+        selectionMode = ListSelectionModel.SINGLE_SELECTION
         cellRenderer = object : ColoredListCellRenderer<SessionCommandItem>() {
             override fun customizeCellRenderer(
                 list: JList<out SessionCommandItem>,
@@ -111,7 +109,7 @@ class AcpUserInputPanel(
         lineWrap = true
         wrapStyleWord = true
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
-        emptyText.text = "Type your message..."
+        emptyText.text = MyBundle.message("input.placeholder")
         document.addDocumentListener(object : DocumentListener {
             override fun insertUpdate(e: DocumentEvent) = scheduleCommandPopupRefresh()
             override fun removeUpdate(e: DocumentEvent) = scheduleCommandPopupRefresh()
@@ -175,7 +173,7 @@ class AcpUserInputPanel(
         minimumSize = java.awt.Dimension(100, 24)
     }
 
-    var sendButton = JButton("Send").apply {
+    var sendButton = JButton(MyBundle.message("input.send")).apply {
         icon = AllIcons.Actions.Execute
         isContentAreaFilled = false
         border = JBUI.Borders.empty()
@@ -185,7 +183,7 @@ class AcpUserInputPanel(
         }
     }
 
-    var connectionButton = JButton("Connect").apply {
+    var connectionButton = JButton(MyBundle.message("input.connect")).apply {
         icon = AllIcons.Actions.Execute
         isContentAreaFilled = false
         border = JBUI.Borders.empty()
@@ -212,7 +210,7 @@ class AcpUserInputPanel(
             cell(
                 sendButton
             ).align(AlignX.RIGHT).focused()
-        }
+        }.resizableRow()
     }.apply {
         isOpaque = false
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
@@ -247,6 +245,7 @@ class AcpUserInputPanel(
                     connectionButton.icon = connectionAnimationIcon
                 }
             }
+
             else -> {
                 connectionAnimationIcon?.stopAnimation()
                 connectionAnimationIcon = null
@@ -288,9 +287,9 @@ class AcpUserInputPanel(
 
     fun updateCommandHint(hasCommands: Boolean) {
         userInputTextArea.emptyText.text = if (hasCommands) {
-            "Type your message... (/ for commands)"
+            MyBundle.message("input.placeholderWithCommands")
         } else {
-            "Type your message..."
+            MyBundle.message("input.placeholder")
         }
         if (!hasCommands) {
             hideCommandPopup()
@@ -323,15 +322,15 @@ class AcpUserInputPanel(
         sendButton.isEnabled = isSessionConnected && !isBusy
         connectionButton.isEnabled = canInterrupt || !isBusy && (isSessionConnected || hasSelectedAgent)
         connectionButton.text = when {
-            canInterrupt -> "Interrupt"
-            isSessionConnected -> "Disconnect"
-            else -> "Connect"
+            canInterrupt -> MyBundle.message("input.interrupt")
+            isSessionConnected -> MyBundle.message("input.disconnect")
+            else -> MyBundle.message("input.connect")
         }
         connectionButton.icon = if (isSessionConnected) AllIcons.Actions.Suspend else AllIcons.Actions.Execute
         connectionButton.toolTipText = when {
-            canInterrupt -> "Interrupt the current ACP prompt"
-            isSessionConnected -> "Disconnect the current ACP session"
-            else -> "Connect to the selected ACP agent"
+            canInterrupt -> MyBundle.message("input.tooltipInterrupt")
+            isSessionConnected -> MyBundle.message("input.tooltipDisconnect")
+            else -> MyBundle.message("input.tooltipConnect")
         }
     }
 

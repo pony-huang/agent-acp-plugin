@@ -154,6 +154,19 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
         panel.dispose()
     }
 
+    fun testSendActionIsSeparatedFromSessionControlsRow() {
+        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+
+        val sessionControlsRow = readComponent(panel, "sessionControlsRow")
+        val submitRow = readComponent(panel, "submitRow")
+
+        assertTrue(SwingUtilities.isDescendingFrom(readButton(panel, "connectionButton"), sessionControlsRow))
+        assertTrue(SwingUtilities.isDescendingFrom(readButton(panel, "sendButton"), submitRow))
+        assertFalse(SwingUtilities.isDescendingFrom(readButton(panel, "sendButton"), sessionControlsRow))
+
+        panel.dispose()
+    }
+
     @OptIn(UnstableApi::class)
     fun testPlanSelectionUsesLatestCallback() {
         var initialCallbackCount = 0

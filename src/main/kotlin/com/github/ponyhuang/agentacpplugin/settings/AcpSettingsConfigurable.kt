@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.settings
 
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentInstallationService
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentRegistryService
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentsConfigService
@@ -173,6 +174,6 @@ class AcpSettingsConfigurable : Configurable {
     }
 
     private fun showError(message: String) {
-        Messages.showErrorDialog(message, "ACP Chat")
+        Messages.showErrorDialog(message, MyBundle.message("plugin.settings.name"))
     }
 }

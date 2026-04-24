@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.ui.components.JBLabel
@@ -44,7 +45,7 @@ internal class PermissionRequestCardPanel(
         chrome.contentPanel.layout = BoxLayout(chrome.contentPanel, BoxLayout.Y_AXIS)
 
         chrome.contentPanel.add(
-            JBLabel("Allow?").apply {
+            JBLabel(MyBundle.message("permission.allow")).apply {
                 foreground = UIUtil.getContextHelpForeground()
                 border = JBUI.Borders.emptyBottom(6)
                 alignmentX = LEFT_ALIGNMENT
@@ -87,7 +88,7 @@ internal class PermissionRequestCardPanel(
 
         if (currentRequest.options.isEmpty()) {
             contentPanel.add(
-                JBLabel("No permission options were provided by the agent.").apply {
+                JBLabel(MyBundle.message("permission.noOptions")).apply {
                     foreground = UIUtil.getContextHelpForeground()
                     alignmentX = LEFT_ALIGNMENT
                 }
@@ -120,7 +121,7 @@ internal class PermissionRequestCardPanel(
                     (currentRequest.selectedOptionId == null && index == 0)
             radio.isEnabled = !currentRequest.submitted
         }
-        submitButton.text = if (currentRequest.submitted) "Submitted" else "Submit"
+        submitButton.text = if (currentRequest.submitted) MyBundle.message("permission.submitted") else MyBundle.message("permission.submit")
         submitButton.isEnabled = !currentRequest.submitted
     }
 

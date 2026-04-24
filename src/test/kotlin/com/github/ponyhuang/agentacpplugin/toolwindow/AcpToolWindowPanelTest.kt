@@ -44,6 +44,19 @@ class AcpToolWindowPanelTest : BasePlatformTestCase() {
         }
     }
 
+    fun testCreateNewSessionWithoutSelectedAgentDoesNotThrow() {
+        val disposable = Disposer.newDisposable()
+        try {
+            val panel = AcpToolWindowPanel(project, disposable)
+
+            panel.createNewSession()
+
+            PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
     fun testToolWindowPanelShowsPlanPanelWhenPlanEntriesArrive() {
         val disposable = Disposer.newDisposable()
         try {

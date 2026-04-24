@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.settings
 
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentRegistryService
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.SimpleTextAttributes
@@ -45,10 +46,10 @@ class AcpSettingsComponent(
     private val agentListModel = DefaultListModel<AgentRow>()
     private val agentList = JBList(agentListModel)
     private val registryStatusLabel = JBLabel()
-    private val installButton = JButton("Install")
-    private val upgradeButton = JButton("Upgrade")
-    private val uninstallButton = JButton("Uninstall")
-    private val openLinkButton = JButton("Open Link")
+    private val installButton = JButton(MyBundle.message("settings.install"))
+    private val upgradeButton = JButton(MyBundle.message("settings.upgrade"))
+    private val uninstallButton = JButton(MyBundle.message("settings.uninstall"))
+    private val openLinkButton = JButton(MyBundle.message("settings.openLink"))
     private val storageCommentLabel = JBLabel()
 
     private var autoConnectEnabled: Boolean = false
@@ -59,18 +60,18 @@ class AcpSettingsComponent(
     private var registrySnapshot: AcpAgentRegistryService.RegistrySnapshot? = null
 
     private val panel = panel {
-        group("General Settings") {
+        group(MyBundle.message("settings.general")) {
             row {
-                checkBox("Auto-connect to last agent on startup")
+                checkBox(MyBundle.message("settings.autoConnect"))
                     .bindSelected(::autoConnectEnabled)
             }
             row {
-                checkBox("Show startup notifications")
+                checkBox(MyBundle.message("settings.showNotifications"))
                     .bindSelected(::showStartupNotifications)
             }
         }
-        group("Sessions Storage") {
-            row("Storage Path:") {
+        group(MyBundle.message("settings.sessionsStorage")) {
+            row(MyBundle.message("settings.storagePath")) {
                 storagePathField = textField()
                     .align(Align.FILL)
                     .resizableColumn()
@@ -81,12 +82,12 @@ class AcpSettingsComponent(
                 cell(storageCommentLabel)
             }
         }
-        group("Agent Registry") {
+        group(MyBundle.message("settings.registry")) {
             row {
                 cell(registryStatusLabel)
                     .align(Align.FILL)
                     .resizableColumn()
-                button("Refresh") {
+                button(MyBundle.message("settings.refresh")) {
                     onRefreshRegistry()
                 }
             }
@@ -134,7 +135,7 @@ class AcpSettingsComponent(
         this.showStartupNotifications = showStartupNotifications
         this.sessionsStoragePath = sessionsStoragePath
         this.effectiveSessionsPath = effectiveSessionsPath
-        storageCommentLabel.text = "Leave empty to use default location. Current default: $effectiveSessionsPath"
+        storageCommentLabel.text = MyBundle.message("settings.storageComment", effectiveSessionsPath)
         storageCommentLabel.toolTipText = effectiveSessionsPath
         panel.reset()
     }
@@ -250,9 +251,9 @@ class AcpSettingsComponent(
         val count = registrySnapshot?.agents?.size ?: 0
         val refreshedAt = AcpPluginSettings.getInstance().registryLastRefreshMillis.takeIf { it > 0 }
             ?.let { REFRESH_TIME_FORMATTER.format(Instant.ofEpochMilli(it)) }
-            ?: "Never"
+            ?: MyBundle.message("settings.never")
         val legacyCount = installedAgents.count { it.isLegacy || it.registryAgentId.isBlank() }
-        registryStatusLabel.text = "Official agents: $count  |  Last refreshed: $refreshedAt  |  Legacy installed: $legacyCount"
+        registryStatusLabel.text = MyBundle.message("settings.registryStatus", count, refreshedAt, legacyCount)
     }
 
     private fun updateActionButtons() {
@@ -294,10 +295,10 @@ class AcpSettingsComponent(
             override val title: String = agent.name
             override val status: String =
                 when {
-                    installed == null -> "Not installed"
-                    installed.installedVersion.isBlank() -> "Installed"
-                    installed.installedVersion == agent.version -> "Installed v${installed.installedVersion}"
-                    else -> "Installed v${installed.installedVersion}, latest v${agent.version}"
+                    installed == null -> MyBundle.message("settings.notInstalled")
+                    installed.installedVersion.isBlank() -> MyBundle.message("settings.installed")
+                    installed.installedVersion == agent.version -> MyBundle.message("settings.installedVersion", installed.installedVersion)
+                    else -> MyBundle.message("settings.installedVersionLatest", installed.installedVersion, agent.version)
                 }
             override val detail: String = buildString {
                 append(agent.description)
@@ -313,7 +314,7 @@ class AcpSettingsComponent(
             val installed: AcpPluginSettings.InstalledAgentSetting,
         ) : AgentRow {
             override val title: String = installed.displayName
-            override val status: String = "Legacy installed"
+            override val status: String = MyBundle.message("settings.legacyInstalled")
             override val detail: String = buildString {
                 if (installed.description.isNotBlank()) {
                     append(installed.description)
