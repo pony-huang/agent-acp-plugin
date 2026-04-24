@@ -1027,7 +1027,7 @@ class AcpSessionService(private val project: Project) : Disposable {
             return false
         }
 
-        _pendingPermissionRequests.value = _pendingPermissionRequests.value.map { request ->
+        val updatedRequests = _pendingPermissionRequests.value.map { request ->
             if (request.requestId == requestId) {
                 request.copy(
                     selectedOptionId = optionId,
@@ -1035,6 +1035,26 @@ class AcpSessionService(private val project: Project) : Disposable {
                 )
             } else {
                 request
+            }
+        }
+        _pendingPermissionRequests.value = updatedRequests
+
+        _messages.value = _messages.value.map { message ->
+            var changed = false
+            val updatedEntries = message.entries.map { entry ->
+                when {
+                    entry is MessageEntry.PermissionRequest && entry.request.requestId == requestId -> {
+                        changed = true
+                        val updatedRequest = updatedRequests.firstOrNull { it.requestId == requestId } ?: entry.request
+                        entry.copy(request = updatedRequest)
+                    }
+                    else -> entry
+                }
+            }
+            if (!changed) {
+                message
+            } else {
+                message.copy(entries = updatedEntries)
             }
         }
         return true
