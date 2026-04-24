@@ -31,9 +31,11 @@ import java.awt.Dimension
 import javax.swing.JPanel
 import javax.swing.JList
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -57,6 +59,7 @@ class AcpToolWindowPanel(
     private val configService = project.service<com.github.ponyhuang.agentacpplugin.services.AcpAgentsConfigService>()
     private val sessionService = project.service<AcpSessionService>()
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val isListingSessions = MutableStateFlow(false)
 
     // Create agent selection notifier for linkage
     private val agentNotifier = AgentNotifier()
@@ -64,6 +67,7 @@ class AcpToolWindowPanel(
     private val conversationPanel = AcpChatViewPanel(project, disposable)
     private val conversationAcpChatViewToolbar = AcpChatViewToolbar(
         isLoading = { sessionService.isLoading.value },
+        isListingSessions = { isListingSessions.value },
         hasSelectedAgent = { userInputPanel.selectedAgent() != null },
         onShowSessions = { showSessionPopup() },
         onCancel = {
@@ -266,6 +270,13 @@ class AcpToolWindowPanel(
                 }
             }
         }
+        uiScope.launch {
+            isListingSessions.collectLatest {
+                runOnEdt {
+                    conversationAcpChatViewToolbar.update()
+                }
+            }
+        }
         Disposer.register(disposable, controller)
         Disposer.register(disposable, conversationAcpChatViewToolbar)
         Disposer.register(disposable) { uiScope.cancel() }
@@ -286,8 +297,11 @@ class AcpToolWindowPanel(
     }
 
     internal fun showSessionPopup() {
+        logger.info("[Sessions] Show sessions requested")
         val agent = userInputPanel.selectedAgent()
+        logger.info("[Sessions] Selected agent at request time: ${agent?.displayName ?: "<none>"}")
         if (agent == null) {
+            logger.warn("[Sessions] No agent selected, cannot list sessions")
             Notifications.Bus.notify(
                 Notification(
                     "ACP Sessions",
@@ -301,12 +315,21 @@ class AcpToolWindowPanel(
         }
 
         val cwd = project.basePath ?: System.getProperty("user.dir")
-        uiScope.launch {
+        isListingSessions.value = true
+        logger.info("[Sessions] Launching listSessions coroutine: scopeActive=${uiScope.coroutineContext[kotlinx.coroutines.Job]?.isActive}, cwd=$cwd")
+        val job = uiScope.launch {
+            logger.info("[Sessions] listSessions coroutine started: isActive=${kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.isActive}")
             try {
                 val sessions = sessionService.listSessions(agent, cwd)
+                logger.info("[Sessions] listSessions returned to tool window coroutine with ${sessions.size} sessions")
+                logger.info("[Sessions] Listed ${sessions.size} sessions for agent ${agent.displayName}")
                 runOnEdt {
+                    logger.info("[Sessions] Scheduling popup rendering on EDT for ${sessions.size} sessions")
                     showSessionPopup(agent, cwd, sessions)
                 }
+            } catch (t: CancellationException) {
+                logger.warn("[Sessions] listSessions coroutine cancelled after launch", t)
+                throw t
             } catch (t: Throwable) {
                 logger.warn("Failed to list ACP sessions", t)
                 Notifications.Bus.notify(
@@ -318,7 +341,12 @@ class AcpToolWindowPanel(
                     ),
                     project
                 )
+            } finally {
+                isListingSessions.value = false
             }
+        }
+        job.invokeOnCompletion { cause ->
+            logger.info("[Sessions] listSessions coroutine completed: cancelled=${job.isCancelled}, completed=${job.isCompleted}, cause=${cause?.javaClass?.simpleName ?: "<none>"}${cause?.message?.let { ", message=$it" } ?: ""}")
         }
     }
 
@@ -327,6 +355,7 @@ class AcpToolWindowPanel(
         cwd: String,
         sessions: List<AcpSessionService.SessionListItem>
     ) {
+        logger.info("[Sessions] Creating popup UI with ${sessions.size} sessions")
         sessionsPopup?.cancel()
         val listModel = com.intellij.ui.CollectionListModel(sessions)
         val sessionList = com.intellij.ui.components.JBList(listModel).apply {
@@ -388,6 +417,7 @@ class AcpToolWindowPanel(
         cwd: String,
         sessionId: String
     ) {
+        logger.info("[Sessions] Resuming session $sessionId for agent ${agent.displayName}")
         uiScope.launch {
             try {
                 sessionService.disconnect()

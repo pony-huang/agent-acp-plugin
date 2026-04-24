@@ -8,6 +8,7 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
     fun testToolbarExposesSessionAction() {
         val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { false },
+            isListingSessions = { false },
             hasSelectedAgent = { true },
             onShowSessions = {},
             onCancel = {}
@@ -24,6 +25,7 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
         var opened = false
         val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { false },
+            isListingSessions = { false },
             hasSelectedAgent = { false },
             onShowSessions = { opened = true },
             onCancel = {}
@@ -39,6 +41,7 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
         var opened = false
         val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { true },
+            isListingSessions = { false },
             hasSelectedAgent = { true },
             onShowSessions = { opened = true },
             onCancel = {}
@@ -54,6 +57,7 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
         var opened = false
         val acpChatViewToolbar = AcpChatViewToolbar(
             isLoading = { false },
+            isListingSessions = { false },
             hasSelectedAgent = { true },
             onShowSessions = { opened = true },
             onCancel = {}
@@ -62,5 +66,20 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
         acpChatViewToolbar.performSessionAction()
 
         assertTrue(opened)
+    }
+
+    fun testSessionActionShowsLoadingIndicatorWhileListingSessions() {
+        val acpChatViewToolbar = AcpChatViewToolbar(
+            isLoading = { false },
+            isListingSessions = { true },
+            hasSelectedAgent = { true },
+            onShowSessions = {},
+            onCancel = {}
+        )
+
+        acpChatViewToolbar.update()
+
+        assertFalse(acpChatViewToolbar.isSessionActionEnabled())
+        assertTrue(acpChatViewToolbar.isSessionLoadingIndicatorVisible())
     }
 }

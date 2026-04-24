@@ -381,8 +381,10 @@ class AcpSessionService(private val project: Project) : Disposable {
         agentDefinition: AgentRegistry.InstalledAgent,
         cwd: String
     ): List<SessionListItem> = withContext(Dispatchers.IO) {
+        logger.info("[Sessions] listSessions entered: agent=${agentDefinition.displayName}, cwd=$cwd")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val configService = project.service<AcpAgentsConfigService>()
+        logger.info("[Sessions] Creating temporary client bridge for ${agentDefinition.displayName}")
         val temporaryClient = configService.createClientBridge(
             agentDefinition.displayName,
             scope,
@@ -393,15 +395,17 @@ class AcpSessionService(private val project: Project) : Disposable {
         ) ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' is not configured.")
 
         try {
+            logger.info("[Sessions] Temporary client bridge created, connecting to ${agentDefinition.displayName}")
             val info = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
                 temporaryClient.connect()
             } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
 
+            logger.info("[Sessions] Agent connected, session list capability present=${info.capabilities.sessionCapabilities.list != null}")
             if (info.capabilities.sessionCapabilities.list == null) {
                 throw IllegalStateException("Agent '${agentDefinition.displayName}' does not support session listing.")
             }
 
-            temporaryClient.listSessions(cwd).map { sessionInfo ->
+            val listedSessions = temporaryClient.listSessions(cwd).map { sessionInfo ->
                 SessionListItem(
                     sessionId = sessionInfo.sessionId.value,
                     title = sessionInfo.title,
@@ -413,9 +417,19 @@ class AcpSessionService(private val project: Project) : Disposable {
                     .thenByDescending { it.title.orEmpty() }
                     .thenByDescending { it.sessionId }
             )
+            logger.info("[Sessions] Agent returned ${listedSessions.size} sessions for cwd=$cwd")
+            listedSessions
         } finally {
-            temporaryClient.close()
-            scope.cancel()
+            serviceScope.launch(Dispatchers.IO) {
+                logger.info("[Sessions] Closing temporary client bridge for ${agentDefinition.displayName}")
+                try {
+                    temporaryClient.close()
+                } catch (t: Throwable) {
+                    logger.warn("[Sessions] Failed to close temporary client bridge for ${agentDefinition.displayName}", t)
+                } finally {
+                    scope.cancel()
+                }
+            }
         }
     }
 

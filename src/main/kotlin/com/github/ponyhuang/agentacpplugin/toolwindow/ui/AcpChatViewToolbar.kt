@@ -5,12 +5,15 @@ import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.icons.AllIcons
+import com.intellij.ui.AnimatedIcon
 import com.intellij.util.ui.UIUtil
 import java.awt.FlowLayout
+import javax.swing.JLabel
 import javax.swing.JPanel
 
 class AcpChatViewToolbar(
     private val isLoading: () -> Boolean,
+    private val isListingSessions: () -> Boolean = { false },
     private val hasSelectedAgent: () -> Boolean = { false },
     private val onShowSessions: () -> Unit = {},
     private val onCancel: () -> Unit
@@ -22,6 +25,10 @@ class AcpChatViewToolbar(
         actionGroup,
         true
     )
+    private val sessionsLoadingIndicator = JLabel(AnimatedIcon.Default.INSTANCE).apply {
+        isVisible = false
+        toolTipText = "Loading sessions..."
+    }
     private val sessionsAction = object : DumbAwareAction("Sessions", "List and resume ACP sessions", AllIcons.Actions.ListFiles) {
         override fun displayTextInToolbar(): Boolean = true
 
@@ -46,11 +53,15 @@ class AcpChatViewToolbar(
         alignmentX = LEFT_ALIGNMENT
         toolbar.targetComponent = this
         add(toolbar.component)
+        add(sessionsLoadingIndicator)
     }
 
     fun update() {
         runOnEdt {
+            sessionsLoadingIndicator.isVisible = isListingSessions()
             toolbar.updateActionsAsync()
+            revalidate()
+            repaint()
         }
     }
 
@@ -58,7 +69,9 @@ class AcpChatViewToolbar(
 
     internal fun performStopAction() = Unit
 
-    internal fun isSessionActionEnabled(): Boolean = hasSelectedAgent() && !isLoading()
+    internal fun isSessionActionEnabled(): Boolean = hasSelectedAgent() && !isLoading() && !isListingSessions()
+
+    internal fun isSessionLoadingIndicatorVisible(): Boolean = sessionsLoadingIndicator.isVisible
 
     internal fun performSessionAction() {
         if (isSessionActionEnabled()) {
