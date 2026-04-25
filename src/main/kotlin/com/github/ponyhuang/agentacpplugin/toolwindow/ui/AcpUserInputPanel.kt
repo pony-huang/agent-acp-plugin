@@ -204,9 +204,6 @@ class AcpUserInputPanel(
                 modelComboBox
             ).align(AlignX.FILL).focused()
             cell(
-                connectionButton
-            ).align(AlignX.RIGHT).focused()
-            cell(
                 sendButton
             ).align(AlignX.RIGHT).focused()
         }.resizableRow()
@@ -326,10 +323,11 @@ class AcpUserInputPanel(
     private fun updateControlStates() {
         val hasSelectedAgent = agentComboBoxAction.getSelectedAgent() != null
         val canInterrupt = isSessionConnected && isBusy
-        agentComboBox.isEnabled = !isBusy && !isSessionConnected
+        agentComboBox.isEnabled = !isBusy
         planComboBox.isEnabled = isSessionConnected && !isBusy && planComboBoxAction.getSelectedPlan() != null
         modelComboBox.isEnabled = isSessionConnected && !isBusy && modelComboBoxAction.getSelectedModel() != null
         sendButton.isEnabled = isSessionConnected && !isBusy
+        connectionButton.isVisible = false
         connectionButton.isEnabled = canInterrupt || !isBusy && (isSessionConnected || hasSelectedAgent)
         connectionButton.text = when {
             canInterrupt -> MyBundle.message("input.interrupt")

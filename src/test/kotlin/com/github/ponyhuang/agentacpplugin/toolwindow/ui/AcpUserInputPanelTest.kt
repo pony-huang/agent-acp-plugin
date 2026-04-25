@@ -82,12 +82,11 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
 
         flushEdt()
 
-        assertFalse(readComponent(panel, "agentComboBox").isEnabled)
+        assertTrue(readComponent(panel, "agentComboBox").isEnabled)
         assertTrue(readComponent(panel, "planComboBox").isEnabled)
         assertTrue(readComponent(panel, "modelComboBox").isEnabled)
-        assertTrue(readComponent(panel, "connectionButton").isEnabled)
+        assertFalse(readComponent(panel, "connectionButton").isVisible)
         assertTrue(readComponent(panel, "sendButton").isEnabled)
-        assertEquals("Disconnect", readButton(panel, "connectionButton").text)
 
         panel.dispose()
     }
@@ -124,32 +123,49 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
         assertFalse(readComponent(panel, "agentComboBox").isEnabled)
         assertFalse(readComponent(panel, "planComboBox").isEnabled)
         assertFalse(readComponent(panel, "modelComboBox").isEnabled)
-        assertTrue(readComponent(panel, "connectionButton").isEnabled)
-        assertEquals("Interrupt", readButton(panel, "connectionButton").text)
+        assertFalse(readComponent(panel, "connectionButton").isVisible)
         assertFalse(readComponent(panel, "sendButton").isEnabled)
 
         panel.dispose()
     }
 
-    fun testBusyConnectedStateUsesInterruptActionTooltip() {
+    fun testConnectionButtonRemainsHiddenDuringBusyConnectedState() {
         val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
         panel.setSessionConnected(true)
         panel.setBusy(ToolWindowComposerState.SENDING)
 
         val connectionButton = readButton(panel, "connectionButton")
 
+        assertFalse(connectionButton.isVisible)
         assertEquals("Interrupt", connectionButton.text)
         assertEquals("Interrupt the current ACP prompt", connectionButton.toolTipText)
-        assertTrue(connectionButton.isEnabled)
 
         panel.dispose()
     }
 
-    fun testDisconnectedSessionKeepsSendDisabledAndShowsConnectAction() {
+    fun testDisconnectedSessionKeepsSendDisabledAndHidesConnectionAction() {
         val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
 
         assertFalse(readComponent(panel, "sendButton").isEnabled)
+        assertFalse(readComponent(panel, "connectionButton").isVisible)
         assertEquals("Connect", readButton(panel, "connectionButton").text)
+
+        panel.dispose()
+    }
+
+    fun testInitialStateHasNoSelectedAgent() {
+        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+
+        assertNull(panel.selectedAgent())
+
+        panel.dispose()
+    }
+
+    fun testConnectedSessionKeepsAgentSelectorEnabledForSwitching() {
+        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        panel.setSessionConnected(true)
+
+        assertTrue(readComponent(panel, "agentComboBox").isEnabled)
 
         panel.dispose()
     }
@@ -159,7 +175,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
 
         val sessionControlsRow = readComponent(panel, "sessionControlsRow")
 
-        assertTrue(SwingUtilities.isDescendingFrom(readButton(panel, "connectionButton"), sessionControlsRow))
+        assertFalse(SwingUtilities.isDescendingFrom(readButton(panel, "connectionButton"), sessionControlsRow))
         assertTrue(SwingUtilities.isDescendingFrom(readButton(panel, "sendButton"), sessionControlsRow))
 
         panel.dispose()

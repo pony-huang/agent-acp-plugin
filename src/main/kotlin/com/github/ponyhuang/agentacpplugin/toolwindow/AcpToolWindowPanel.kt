@@ -92,6 +92,7 @@ class AcpToolWindowPanel(
     }
 
     private val controller = userInputPanel
+    private var connectedAgentId: String? = null
     private val planEntriesPanel: PlanEntriesPanel = PlanEntriesPanel().apply {
         isVisible = false
     }
@@ -116,6 +117,7 @@ class AcpToolWindowPanel(
                     if (sessionService.isConnected.value && sessionService.isLoading.value) {
                         sessionService.cancel()
                     } else if (sessionService.isConnected.value) {
+                        connectedAgentId = null
                         sessionService.disconnect()
                         Notifications.Bus.notify(
                             Notification(
@@ -128,18 +130,7 @@ class AcpToolWindowPanel(
                         )
                     } else {
                         val agent = userInputPanel.selectedAgent() ?: return@launch
-                        val cwd = project.basePath ?: System.getProperty("user.dir")
-                        logger.info("Initializing ACP session for selected agent: id=${agent.id}, displayName=${agent.displayName}, cwd=$cwd")
-                        sessionService.createSession(agent, cwd)
-                        Notifications.Bus.notify(
-                            Notification(
-                                MyBundle.message("notification.acpConnection"),
-                                MyBundle.message("notification.connectedTo", agent.displayName),
-                                MyBundle.message("notification.sessionEstablished"),
-                                NotificationType.INFORMATION
-                            ),
-                            project
-                        )
+                        connectSelectedAgent(agent)
                     }
                 } catch (t: Throwable) {
                     logger.warn("Failed to toggle ACP session", t)
@@ -165,6 +156,11 @@ class AcpToolWindowPanel(
         userInputPanel.onAgentChanged = { agentItem ->
             if (agentItem != null) {
                 logger.info("Selected ACP agent: id=${agentItem.id}, displayName=${agentItem.displayName}")
+                if (!sessionService.isLoading.value) {
+                    uiScope.launch {
+                        switchOrConnectSelectedAgent(agentItem.agentDefinition)
+                    }
+                }
             }
             conversationAcpChatViewToolbar.update()
         }
@@ -213,6 +209,7 @@ class AcpToolWindowPanel(
                 runOnEdt {
                     userInputPanel.setSessionConnected(connected)
                     if (!connected) {
+                        connectedAgentId = null
                         userInputPanel.clearSessionSelectors()
                     }
                 }
@@ -352,6 +349,35 @@ class AcpToolWindowPanel(
         }
     }
 
+    private suspend fun switchOrConnectSelectedAgent(agent: AgentRegistry.InstalledAgent) {
+        if (sessionService.isConnected.value && connectedAgentId == agent.id) {
+            return
+        }
+
+        if (sessionService.isConnected.value) {
+            connectedAgentId = null
+            sessionService.disconnect()
+        }
+
+        connectSelectedAgent(agent)
+    }
+
+    private suspend fun connectSelectedAgent(agent: AgentRegistry.InstalledAgent) {
+        val cwd = project.basePath ?: System.getProperty("user.dir")
+        logger.info("Initializing ACP session for selected agent: id=${agent.id}, displayName=${agent.displayName}, cwd=$cwd")
+        sessionService.createSession(agent, cwd)
+        connectedAgentId = agent.id
+        Notifications.Bus.notify(
+            Notification(
+                MyBundle.message("notification.acpConnection"),
+                MyBundle.message("notification.connectedTo", agent.displayName),
+                MyBundle.message("notification.sessionEstablished"),
+                NotificationType.INFORMATION
+            ),
+            project
+        )
+    }
+
     internal fun createNewSession() {
         val agent = userInputPanel.selectedAgent()
         if (agent == null) {
@@ -370,8 +396,10 @@ class AcpToolWindowPanel(
         val cwd = project.basePath ?: System.getProperty("user.dir")
         uiScope.launch {
             try {
+                connectedAgentId = null
                 sessionService.disconnect()
                 sessionService.createSession(agent, cwd)
+                connectedAgentId = agent.id
                 Notifications.Bus.notify(
                     Notification(
                         MyBundle.message("notification.acpSessions"),
@@ -466,8 +494,10 @@ class AcpToolWindowPanel(
         logger.info("[Sessions] Resuming session $sessionId for agent ${agent.displayName}")
         uiScope.launch {
             try {
+                connectedAgentId = null
                 sessionService.disconnect()
                 sessionService.resumeSession(sessionId, agent, cwd)
+                connectedAgentId = agent.id
                 Notifications.Bus.notify(
                     Notification(
                         MyBundle.message("notification.acpSessions"),
