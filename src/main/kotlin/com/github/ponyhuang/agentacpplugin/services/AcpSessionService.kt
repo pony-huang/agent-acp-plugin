@@ -5,6 +5,7 @@ import com.agentclientprotocol.annotations.UnstableApi
 import com.agentclientprotocol.client.ClientSession
 import com.agentclientprotocol.common.Event
 import com.agentclientprotocol.model.*
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.toolwindow.AcpToolWindowPanel
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
@@ -200,7 +201,7 @@ class AcpSessionService(private val project: Project) : Disposable {
                 val requestInfo = PermissionRequestInfo(
                     requestId = request.requestId,
                     toolCallId = request.toolCall.toolCallId.value,
-                    title = request.toolCall.title ?: "Permission request",
+                    title = request.toolCall.title ?: MyBundle.message("permission.requestTitle"),
                     options = request.permissions.map { permission ->
                         PermissionOptionInfo(
                             optionId = permission.optionId.value,
@@ -278,7 +279,7 @@ class AcpSessionService(private val project: Project) : Disposable {
                 id = UUID.randomUUID().toString(),
                 agentName = agentDefinition.displayName,
                 sessionId = session.sessionId.value,
-                title = "New Session",
+                title = MyBundle.message("session.newSessionTitle"),
                 lastUpdated = System.currentTimeMillis(),
                 cwd = cwd,
                 supportsLoadSession = info.capabilities.sessionCapabilities.resume != null

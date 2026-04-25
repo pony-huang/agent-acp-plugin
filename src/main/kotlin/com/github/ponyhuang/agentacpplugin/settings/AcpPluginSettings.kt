@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.settings
 
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.InstallMethod
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent
@@ -160,8 +161,8 @@ class AcpPluginSettings : PersistentStateComponent<AcpPluginSettings> {
                 env = legacy.env,
                 installedVersion = "",
                 installRoot = "",
-                sourceLabel = if (guess.registryAgentId != null) "Migrated from legacy settings" else "Legacy manual configuration",
-                description = if (guess.registryAgentId != null) "Migrated from a previous ACP Chat version" else "Legacy installed agent",
+                sourceLabel = if (guess.registryAgentId != null) MyBundle.message("agents.source.migrated") else MyBundle.message("agents.source.legacy"),
+                description = if (guess.registryAgentId != null) MyBundle.message("agents.description.migrated") else MyBundle.message("agents.description.legacy") ,
                 isLegacy = guess.registryAgentId == null
             )
         }

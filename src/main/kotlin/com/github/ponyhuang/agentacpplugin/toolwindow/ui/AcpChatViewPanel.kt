@@ -1,6 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
 import com.agentclientprotocol.annotations.UnstableApi
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -353,14 +354,14 @@ class AcpChatViewPanel(
             alignmentX = LEFT_ALIGNMENT
 
             add(
-                JBLabel("No conversation yet").apply {
+                JBLabel(MyBundle.message("chat.emptyTitle")).apply {
                     foreground = UIUtil.getLabelForeground()
                     border = JBUI.Borders.emptyBottom(6)
                     alignmentX = LEFT_ALIGNMENT
                 }
             )
             add(
-                JBLabel("Start a conversation to see ACP messages here.").apply {
+                JBLabel(MyBundle.message("chat.emptyDescription")).apply {
                     foreground = UIUtil.getContextHelpForeground()
                     alignmentX = LEFT_ALIGNMENT
                 }

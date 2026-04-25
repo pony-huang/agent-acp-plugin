@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.services
 
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.settings.AcpPluginSettings
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.Service
@@ -48,7 +49,7 @@ class AcpAgentInstallationService {
                         env = distribution.env,
                         installedVersion = agent.version,
                         installRoot = "",
-                        sourceLabel = "Official ACP registry",
+                        sourceLabel = MyBundle.message("agents.source.official"),
                         description = agent.description,
                         isLegacy = false,
                     ),
@@ -69,7 +70,7 @@ class AcpAgentInstallationService {
                         env = distribution.env,
                         installedVersion = agent.version,
                         installRoot = "",
-                        sourceLabel = "Official ACP registry",
+                        sourceLabel = MyBundle.message("agents.source.official"),
                         description = agent.description,
                         isLegacy = false,
                     ),
@@ -116,7 +117,7 @@ class AcpAgentInstallationService {
                 env = distribution.env,
                 installedVersion = agent.version,
                 installRoot = installRoot.toString(),
-                sourceLabel = "Official ACP registry",
+                sourceLabel = MyBundle.message("agents.source.official"),
                 description = agent.description,
                 isLegacy = false,
             ),

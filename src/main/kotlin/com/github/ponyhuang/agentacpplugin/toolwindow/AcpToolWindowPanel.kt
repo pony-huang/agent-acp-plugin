@@ -538,7 +538,7 @@ class AcpToolWindowPanel(
     private fun buildSessionSubtitle(session: AcpSessionService.SessionListItem): String {
         val updatedAt = session.updatedAtMillis?.let {
             SESSION_TIMESTAMP_FORMATTER.format(Instant.ofEpochMilli(it))
-        } ?: "Unknown update time"
+        } ?: MyBundle.message("session.unknownUpdateTime")
         return "$updatedAt • ${shortSessionId(session.sessionId)}"
     }
 

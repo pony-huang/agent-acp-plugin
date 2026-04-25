@@ -193,7 +193,7 @@ class AcpUserInputPanel(
         }
     }
 
-    var bottom = panel {
+    private val sessionControlsRow = panel {
         row {
             cell(
                 agentComboBox
@@ -207,10 +207,33 @@ class AcpUserInputPanel(
             cell(
                 connectionButton
             ).align(AlignX.RIGHT).focused()
+        }.resizableRow()
+    }.apply {
+        isOpaque = false
+        background = EditorColorsManager.getInstance().globalScheme.defaultBackground
+    }
+
+    private val submitRow = panel {
+        row {
             cell(
                 sendButton
             ).align(AlignX.RIGHT).focused()
-        }.resizableRow()
+        }.topGap(TopGap.SMALL)
+    }.apply {
+        isOpaque = false
+        background = EditorColorsManager.getInstance().globalScheme.defaultBackground
+    }
+
+    var bottom = panel {
+        row {
+            cell(sessionControlsRow)
+                .align(AlignX.FILL)
+                .resizableColumn()
+        }
+        row {
+            cell(submitRow)
+                .align(AlignX.RIGHT)
+        }
     }.apply {
         isOpaque = false
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground

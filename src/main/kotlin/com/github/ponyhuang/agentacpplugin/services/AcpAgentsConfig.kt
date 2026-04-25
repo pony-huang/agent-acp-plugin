@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.services
 
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.settings.AcpPluginSettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
@@ -33,11 +34,11 @@ class AcpAgentsConfigService(private val project: Project) {
                 registryAgentId = installed.registryAgentId,
                 id = if (installed.registryAgentId.isNotBlank()) installed.registryAgentId else installed.displayName.lowercase().replace(" ", "-"),
                 displayName = installed.displayName,
-                description = registryAgent?.description ?: installed.description.ifBlank { "Installed ACP agent" },
+                description = registryAgent?.description ?: installed.description.ifBlank { MyBundle.message("agents.installedDefaultDescription") },
                 version = installed.installedVersion.ifBlank { registryAgent?.version.orEmpty() },
                 installMethod = installed.installMethod,
                 sourceLabel = installed.sourceLabel.ifBlank {
-                    if (installed.isLegacy) "Legacy manual configuration" else "Official ACP registry"
+                    if (installed.isLegacy) MyBundle.message("agents.source.legacy") else MyBundle.message("agents.source.official")
                 },
                 command = installed.command,
                 args = installed.args,
