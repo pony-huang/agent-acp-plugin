@@ -76,6 +76,14 @@ class AcpToolWindowPanel(
             uiScope.launch {
                 sessionService.cancel()
             }
+        },
+        isSessionConnected = { sessionService.isConnected.value },
+        getComposerState = {
+            when {
+                sessionService.isLoading.value && !sessionService.isConnected.value -> ToolWindowComposerState.CONNECTING
+                sessionService.isLoading.value -> ToolWindowComposerState.SENDING
+                else -> ToolWindowComposerState.IDLE
+            }
         }
     )
 

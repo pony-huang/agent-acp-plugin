@@ -1,6 +1,7 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
 import com.github.ponyhuang.agentacpplugin.MyBundle
+import com.github.ponyhuang.agentacpplugin.toolwindow.ToolWindowComposerState
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
@@ -18,7 +19,9 @@ class AcpChatViewToolbar(
     private val hasSelectedAgent: () -> Boolean = { false },
     private val onNewSession: () -> Unit = {},
     private val onShowSessions: () -> Unit = {},
-    private val onCancel: () -> Unit
+    private val onCancel: () -> Unit,
+    private val isSessionConnected: () -> Boolean = { false },
+    private val getComposerState: () -> ToolWindowComposerState = { ToolWindowComposerState.IDLE }
 ) : JPanel(), Disposable {
 
     val actionGroup = DefaultActionGroup()
@@ -30,6 +33,10 @@ class AcpChatViewToolbar(
     private val sessionsLoadingIndicator = JLabel(AnimatedIcon.Default.INSTANCE).apply {
         isVisible = false
         toolTipText = MyBundle.message("toolbar.loadingSessions")
+    }
+    private val connectionStatusIndicator = JLabel().apply {
+        isVisible = false
+        toolTipText = MyBundle.message("toolbar.connectionStatus")
     }
     private val newSessionAction = object : DumbAwareAction(
         MyBundle.message("toolbar.newSession"),
@@ -82,6 +89,7 @@ class AcpChatViewToolbar(
         toolbar.targetComponent = this
         add(toolbar.component)
         add(sessionsLoadingIndicator)
+        add(connectionStatusIndicator)
         @Suppress("DEPRECATION")
         toolbar.updateActionsImmediately()
     }
@@ -89,10 +97,30 @@ class AcpChatViewToolbar(
     fun update() {
         runOnEdt {
             sessionsLoadingIndicator.isVisible = isListingSessions()
+            updateConnectionStatus()
             @Suppress("DEPRECATION")
             toolbar.updateActionsImmediately()
             revalidate()
             repaint()
+        }
+    }
+
+    fun updateConnectionStatus() {
+        val state = getComposerState()
+        val connected = isSessionConnected()
+
+        connectionStatusIndicator.isVisible = when {
+            state == ToolWindowComposerState.CONNECTING -> true
+            state == ToolWindowComposerState.SENDING && connected -> true
+            state == ToolWindowComposerState.IDLE && connected -> true
+            else -> false
+        }
+
+        connectionStatusIndicator.icon = when {
+            state == ToolWindowComposerState.CONNECTING -> AnimatedIcon.Default.INSTANCE
+            state == ToolWindowComposerState.SENDING && connected -> AllIcons.Actions.Suspend
+            state == ToolWindowComposerState.IDLE && connected -> AllIcons.Actions.Suspend
+            else -> null
         }
     }
 
