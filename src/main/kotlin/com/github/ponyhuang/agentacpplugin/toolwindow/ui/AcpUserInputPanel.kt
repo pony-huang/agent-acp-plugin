@@ -25,7 +25,6 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.dsl.builder.AlignX
-import com.intellij.ui.dsl.builder.TopGap
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.components.BorderLayoutPanel
@@ -207,18 +206,10 @@ class AcpUserInputPanel(
             cell(
                 connectionButton
             ).align(AlignX.RIGHT).focused()
-        }.resizableRow()
-    }.apply {
-        isOpaque = false
-        background = EditorColorsManager.getInstance().globalScheme.defaultBackground
-    }
-
-    private val submitRow = panel {
-        row {
             cell(
                 sendButton
             ).align(AlignX.RIGHT).focused()
-        }.topGap(TopGap.SMALL)
+        }.resizableRow()
     }.apply {
         isOpaque = false
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
@@ -229,10 +220,6 @@ class AcpUserInputPanel(
             cell(sessionControlsRow)
                 .align(AlignX.FILL)
                 .resizableColumn()
-        }
-        row {
-            cell(submitRow)
-                .align(AlignX.RIGHT)
         }
     }.apply {
         isOpaque = false
