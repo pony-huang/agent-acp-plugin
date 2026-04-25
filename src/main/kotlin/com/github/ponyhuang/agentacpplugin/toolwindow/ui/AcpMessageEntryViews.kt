@@ -7,6 +7,7 @@ internal sealed interface MessageEntryView {
     val component: JComponent
     fun canUpdate(entry: AcpSessionService.MessageEntry): Boolean
     fun update(entry: AcpSessionService.MessageEntry, thoughtExpanded: Boolean)
+    fun dispose() {}
 }
 
 internal class MarkdownEntryView(
@@ -54,6 +55,10 @@ internal class ToolCallEntryView(private val toolCallRow: ToolCallRow) : Message
     override fun update(entry: AcpSessionService.MessageEntry, thoughtExpanded: Boolean) {
         entry as AcpSessionService.MessageEntry.ToolCall
         toolCallRow.update(entry.toolCall)
+    }
+
+    override fun dispose() {
+        toolCallRow.dispose()
     }
 }
 

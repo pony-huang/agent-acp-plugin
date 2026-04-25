@@ -16,6 +16,7 @@ import javax.swing.JPanel
 import javax.swing.Timer
 
 internal class MessageCardPanel(
+    private val project: com.intellij.openapi.project.Project,
     message: AcpSessionService.ChatMessage,
     private val onPermissionSubmit: (String, String) -> Unit,
     private val onPermissionCardCreated: (String, PermissionRequestCardPanel) -> Unit,
@@ -120,6 +121,7 @@ internal class MessageCardPanel(
         thoughtExpanded: Boolean,
         onThoughtToggled: (Boolean) -> Unit
     ) {
+        entryViews.forEach(MessageEntryView::dispose)
         bodyPanel.removeAll()
         entryViews.clear()
         entries.forEachIndexed { index, entry ->
@@ -154,8 +156,13 @@ internal class MessageCardPanel(
                     onThoughtToggled = onThoughtToggled
                 )
             is AcpSessionService.MessageEntry.ToolCall ->
-                ToolCallEntryView(ToolCallRow(entry.toolCall))
+                ToolCallEntryView(ToolCallRow(project, entry.toolCall))
         }
+    }
+
+    fun dispose() {
+        entryViews.forEach(MessageEntryView::dispose)
+        entryViews.clear()
     }
 
     private fun updateFooter(promptState: MessagePromptState?) {

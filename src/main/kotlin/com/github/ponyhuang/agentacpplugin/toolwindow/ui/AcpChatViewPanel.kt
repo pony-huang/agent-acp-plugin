@@ -36,6 +36,7 @@ class AcpChatViewPanel(
 ) : JPanel(BorderLayout()), Disposable {
 
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val toolWindowProject = project
     private val sessionService = project.getService(AcpSessionService::class.java)
     private val expandedThoughts = linkedSetOf<String>()
     private val renderVersion = AtomicInteger()
@@ -196,6 +197,7 @@ class AcpChatViewPanel(
 
     private fun createRowController(model: MessageRenderModel): MessageRowController {
         return MessageRowController(
+            project = toolWindowProject,
             initialModel = model,
             onPermissionSubmit = { requestId, optionId ->
                 uiScope.launch {
@@ -370,6 +372,9 @@ class AcpChatViewPanel(
     }
 
     override fun dispose() {
+        messageRowControllers.values.forEach { it.dispose() }
+        messageRowControllers.clear()
+        permissionCardsByRequestId.clear()
         smartScroller.dispose()
         uiScope.cancel()
     }

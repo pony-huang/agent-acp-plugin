@@ -1,6 +1,9 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
+import com.intellij.openapi.project.Project
+
 internal class MessageRowController(
+    private val project: Project,
     initialModel: MessageRenderModel,
     private val onPermissionSubmit: (String, String) -> Unit,
     private val onCancelPrompt: () -> Unit,
@@ -13,6 +16,7 @@ internal class MessageRowController(
     fun update(nextModel: MessageRenderModel): Boolean {
         var replaced = false
         if (model.structureKey != nextModel.structureKey || model.message.role != nextModel.message.role) {
+            component.dispose()
             component = createComponent(nextModel)
             replaced = true
         } else {
@@ -27,11 +31,12 @@ internal class MessageRowController(
     }
 
     fun dispose() {
-        // No-op for now; row children are Swing-managed.
+        component.dispose()
     }
 
     private fun createComponent(model: MessageRenderModel): MessageCardPanel {
         return MessageCardPanel(
+            project = project,
             message = model.message,
             onPermissionSubmit = onPermissionSubmit,
             onPermissionCardCreated = { _, _ -> },

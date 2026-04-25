@@ -101,6 +101,31 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertTrue(messages.single().entries.any { it is AcpSessionService.MessageEntry.ToolCall })
     }
 
+    fun testToolCallPreservesStructuredDiffContent() {
+        service.applySessionUpdate(SessionUpdate.AgentMessageChunk(ContentBlock.Text("Working")))
+        service.applySessionUpdate(
+            SessionUpdate.ToolCall(
+                toolCallId = ToolCallId("tool-diff"),
+                title = "Apply patch",
+                kind = ToolKind.EDIT,
+                status = ToolCallStatus.IN_PROGRESS,
+                content = listOf(
+                    ToolCallContent.Diff(
+                        path = "src/Main.kt",
+                        oldText = "old text",
+                        newText = "new text"
+                    )
+                )
+            )
+        )
+
+        val toolCall = service.messages.value.single().toolCalls.single()
+        assertEquals(1, toolCall.diffContents.size)
+        assertEquals("src/Main.kt", toolCall.diffContents.single().path)
+        assertEquals("old text", toolCall.diffContents.single().oldText)
+        assertEquals("new text", toolCall.diffContents.single().newText)
+    }
+
     fun testNonTextContentProducesVisiblePlaceholder() {
         service.applySessionUpdate(
             SessionUpdate.AgentMessageChunk(

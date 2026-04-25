@@ -154,7 +154,14 @@ class AcpSessionService(private val project: Project) : Disposable {
         val status: String = "pending",
         val kind: String? = null,
         val locations: List<String> = emptyList(),
-        val contentSummary: String? = null
+        val contentSummary: String? = null,
+        val diffContents: List<ToolCallDiffInfo> = emptyList()
+    )
+
+    data class ToolCallDiffInfo(
+        val path: String,
+        val newText: String,
+        val oldText: String?
     )
 
     data class SessionPlanItem(
@@ -633,7 +640,8 @@ class AcpSessionService(private val project: Project) : Disposable {
             status = status,
             kind = kind,
             locations = update.locations.map { it.toDisplayString() },
-            contentSummary = summarizeToolCallContent(update.content)
+            contentSummary = summarizeToolCallContent(update.content),
+            diffContents = extractDiffToolCallContent(update.content)
         )
         val assistantMessage = ensureAssistantMessage()
         updateMessage(assistantMessage.id) { message ->
@@ -670,7 +678,8 @@ class AcpSessionService(private val project: Project) : Disposable {
                             kind = update.kind?.toUiValue() ?: tc.kind,
                             status = updatedStatus ?: tc.status,
                             locations = updatedLocations ?: tc.locations,
-                            contentSummary = updatedSummary ?: tc.contentSummary
+                            contentSummary = updatedSummary ?: tc.contentSummary,
+                            diffContents = extractDiffToolCallContent(update.content).ifEmpty { tc.diffContents }
                         )
                     } else tc
                 }
@@ -684,7 +693,8 @@ class AcpSessionService(private val project: Project) : Disposable {
                                         kind = update.kind?.toUiValue() ?: entry.toolCall.kind,
                                         status = updatedStatus ?: entry.toolCall.status,
                                         locations = updatedLocations ?: entry.toolCall.locations,
-                                        contentSummary = updatedSummary ?: entry.toolCall.contentSummary
+                                        contentSummary = updatedSummary ?: entry.toolCall.contentSummary,
+                                        diffContents = extractDiffToolCallContent(update.content).ifEmpty { entry.toolCall.diffContents }
                                     )
                                 )
                             } else {
@@ -878,6 +888,19 @@ class AcpSessionService(private val project: Project) : Disposable {
                     item.oldText?.let { append(" (${it.length} -> ${item.newText.length} chars)") }
                 }
                 is ToolCallContent.Terminal -> "Terminal: ${item.terminalId}"
+            }
+        }
+    }
+
+    private fun extractDiffToolCallContent(content: List<ToolCallContent>?): List<ToolCallDiffInfo> {
+        return content.orEmpty().mapNotNull { item ->
+            when (item) {
+                is ToolCallContent.Diff -> ToolCallDiffInfo(
+                    path = item.path,
+                    newText = item.newText,
+                    oldText = item.oldText
+                )
+                else -> null
             }
         }
     }

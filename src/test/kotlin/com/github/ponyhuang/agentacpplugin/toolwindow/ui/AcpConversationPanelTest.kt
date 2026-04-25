@@ -3,6 +3,7 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.Project
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -57,6 +58,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             val messageCard = instantiatePrivatePanel(
                 "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
                 arrayOf(
+                    Project::class.java,
                     AcpSessionService.ChatMessage::class.java,
                     Function2::class.java,
                     Function2::class.java,
@@ -66,6 +68,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                     Function1::class.java
                 ),
                 arrayOf<Any?>(
+                    project,
                     AcpSessionService.ChatMessage(
                         id = "assistant-fill",
                         role = "assistant",
@@ -154,6 +157,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         val card = instantiatePrivatePanel(
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
             arrayOf(
+                Project::class.java,
                 AcpSessionService.ChatMessage::class.java,
                 Function2::class.java,
                 Function2::class.java,
@@ -163,6 +167,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 Function1::class.java
             ),
             arrayOf(
+                project,
                 message,
                 noOpPermissionSubmit,
                 noOpPermissionCardCreated,
@@ -424,6 +429,34 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertEquals(AllIcons.Actions.Cancel, statusIcon.icon)
     }
 
+    fun testToolCallRowEmbedsDiffPreviewWhenDiffContentExists() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-diff-preview",
+                title = "Apply patch",
+                status = "completed",
+                kind = "edit",
+                diffContents = listOf(
+                    AcpSessionService.ToolCallDiffInfo(
+                        path = "src/Main.kt",
+                        oldText = "old text",
+                        newText = "new text"
+                    )
+                )
+            )
+        )
+
+        try {
+            val diffContainer = row.javaClass.getDeclaredField("diffContainer").apply {
+                isAccessible = true
+            }.get(row) as JPanel
+
+            assertEquals(1, diffContainer.componentCount)
+        } finally {
+            row.javaClass.getMethod("dispose").invoke(row)
+        }
+    }
+
     fun testVisualPanelsUseTemplateChromeAndNestedPanels() {
         val message = AcpSessionService.ChatMessage(
             id = "assistant-2",
@@ -443,6 +476,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         val messageCard = instantiatePrivatePanel(
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
             arrayOf(
+                Project::class.java,
                 AcpSessionService.ChatMessage::class.java,
                 Function2::class.java,
                 Function2::class.java,
@@ -452,6 +486,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 Function1::class.java
             ),
             arrayOf(
+                project,
                 message,
                 noOpPermissionSubmit,
                 noOpPermissionCardCreated,
@@ -714,8 +749,8 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
     private fun instantiateToolCallRow(toolCall: AcpSessionService.ToolCallInfo): javax.swing.JComponent {
         return instantiatePrivatePanel(
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.ToolCallRow",
-            arrayOf(AcpSessionService.ToolCallInfo::class.java),
-            arrayOf(toolCall)
+            arrayOf(Project::class.java, AcpSessionService.ToolCallInfo::class.java),
+            arrayOf(project, toolCall)
         )
     }
 
@@ -727,6 +762,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         return instantiatePrivatePanel(
             "com.github.ponyhuang.agentacpplugin.toolwindow.ui.MessageCardPanel",
             arrayOf(
+                Project::class.java,
                 AcpSessionService.ChatMessage::class.java,
                 Function2::class.java,
                 Function2::class.java,
@@ -736,6 +772,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                 Function1::class.java
             ),
             arrayOf(
+                project,
                 message,
                 noOpPermissionSubmit,
                 noOpPermissionCardCreated,

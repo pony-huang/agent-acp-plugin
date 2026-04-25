@@ -455,7 +455,7 @@ class AcpToolWindowPanel(
                     if (e.clickCount >= 1) {
                         selectedValue?.let { session ->
                             sessionsPopup?.cancel()
-                            resumeSession(agent, cwd, session.sessionId)
+                            resumeSession(agent, cwd, session)
                         }
                     }
                 }
@@ -486,11 +486,20 @@ class AcpToolWindowPanel(
         sessionsPopup?.showUnderneathOf(conversationAcpChatViewToolbar)
     }
 
+    internal fun buildLoadedSessionNotificationContent(
+        session: AcpSessionService.SessionListItem
+    ): String {
+        val title = escapeNotificationText(session.title?.takeIf { it.isNotBlank() } ?: MyBundle.message("session.newSessionTitle"))
+        val sessionId = escapeNotificationText(session.sessionId)
+        return "<html>$title (sessionId: $sessionId)</html>"
+    }
+
     internal fun resumeSession(
         agent: AgentRegistry.InstalledAgent,
         cwd: String,
-        sessionId: String
+        session: AcpSessionService.SessionListItem
     ) {
+        val sessionId = session.sessionId
         logger.info("[Sessions] Resuming session $sessionId for agent ${agent.displayName}")
         uiScope.launch {
             try {
@@ -502,7 +511,7 @@ class AcpToolWindowPanel(
                     Notification(
                         MyBundle.message("notification.acpSessions"),
                         MyBundle.message("notification.sessionResumed"),
-                        MyBundle.message("notification.resumedSession", sessionId),
+                        MyBundle.message("notification.loadedSessionDetails", buildLoadedSessionNotificationContent(session)),
                         NotificationType.INFORMATION
                     ),
                     project
@@ -574,5 +583,12 @@ class AcpToolWindowPanel(
 
     private fun shortSessionId(sessionId: String): String {
         return if (sessionId.length <= 10) sessionId else "${sessionId.take(8)}..."
+    }
+
+    private fun escapeNotificationText(value: String): String {
+        return value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
     }
 }

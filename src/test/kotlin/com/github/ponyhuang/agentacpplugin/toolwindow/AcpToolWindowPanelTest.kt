@@ -219,6 +219,29 @@ class AcpToolWindowPanelTest : BasePlatformTestCase() {
         }
     }
 
+    fun testBuildLoadedSessionNotificationContentIncludesTitleAndSessionId() {
+        val disposable = Disposer.newDisposable()
+        try {
+            val panel = AcpToolWindowPanel(project, disposable)
+
+            val content = panel.buildLoadedSessionNotificationContent(
+                AcpSessionService.SessionListItem(
+                    sessionId = "session-123",
+                    title = "Read file",
+                    cwd = project.basePath ?: ".",
+                    updatedAtMillis = null
+                )
+            )
+
+            assertEquals(
+                "<html>Read file (sessionId: session-123)</html>",
+                content
+            )
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
     private inline fun <reified T> readField(target: Any, fieldName: String): T {
         return target.javaClass.getDeclaredField(fieldName).apply {
             isAccessible = true
