@@ -11,6 +11,7 @@ import com.intellij.openapi.actionSystem.ex.ComboBoxAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbAware
 import java.awt.Color
+import javax.swing.Icon
 import javax.swing.JComponent
 
 /**
@@ -36,6 +37,8 @@ class AgentComboBoxAction(
         selectedAgent = selectedAgent?.let { current ->
             newAgents.find { it.id == current.id }
         }
+        templatePresentation.text = selectedAgent?.displayName ?: MyBundle.message("combobox.selectAgent")
+        templatePresentation.icon = selectedAgent?.icon
         if (selectedAgent == null) {
             agentNotifier?.notifyAgentDeselected()
         }
@@ -47,15 +50,17 @@ class AgentComboBoxAction(
     ): DefaultActionGroup {
         return DefaultActionGroup().apply {
             availableAgents.forEach { agent ->
-                add(object : AnAction(agent.displayName, agent.description, null) {
+                add(object : AnAction(agent.displayName, agent.description, agent.icon) {
                     override fun actionPerformed(e: AnActionEvent) {
                         logger.info("Agent selected from combo box: id=${agent.id}, displayName=${agent.displayName}")
                         selectedAgent = agent
-                        templatePresentation.text = agent.displayName
+                        this@AgentComboBoxAction.templatePresentation.text = agent.displayName
+                        this@AgentComboBoxAction.templatePresentation.icon = agent.icon
                         onAgentSelected(agent)
                         agentNotifier?.notifyAgentSelected(agent.agentDefinition)
                         if (component is ComboBoxButton) {
                             component.text = agent.displayName
+                            component.icon = agent.icon
                             component.repaint()
                         }
                     }
@@ -75,6 +80,7 @@ class AgentComboBoxAction(
     ): JComponent {
         val button = createComboBoxButton(presentation)
         button.text = selectedAgent?.displayName ?: MyBundle.message("combobox.selectAgent")
+        button.icon = selectedAgent?.icon
         button.setForeground(EditorColorsManager.getInstance().globalScheme.defaultForeground)
         button.setBorder(null)
         button.putClientProperty("JButton.backgroundColor", Color(0, 0, 0, 0))
@@ -84,6 +90,7 @@ class AgentComboBoxAction(
     override fun update(event: AnActionEvent) {
         super.update(event)
         event.presentation.text = selectedAgent?.displayName ?: MyBundle.message("combobox.selectAgent")
+        event.presentation.icon = selectedAgent?.icon
         event.presentation.isVisible = true
     }
 
@@ -91,6 +98,7 @@ class AgentComboBoxAction(
         val id: String,
         val displayName: String,
         val description: String,
+        val icon: Icon,
         val agentDefinition: AgentRegistry.InstalledAgent,
     )
 }

@@ -3,6 +3,8 @@ package com.github.ponyhuang.agentacpplugin.services
 import com.github.ponyhuang.agentacpplugin.settings.AcpPluginSettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import java.nio.file.Files
+import kotlin.io.path.createDirectories
 
 class AcpAgentsConfigServiceTest : BasePlatformTestCase() {
 
@@ -32,6 +34,7 @@ class AcpAgentsConfigServiceTest : BasePlatformTestCase() {
         )
 
         val registryService = ApplicationManager.getApplication().getService(AcpAgentRegistryService::class.java)
+        val iconService = ApplicationManager.getApplication().getService(AcpAgentIconService::class.java)
         registryService.replaceSnapshotForTests(
             AcpAgentRegistryService.RegistrySnapshot(
                 version = "1.0.0",
@@ -46,7 +49,7 @@ class AcpAgentsConfigServiceTest : BasePlatformTestCase() {
                         website = null,
                         authors = listOf("OpenAI"),
                         license = "Apache-2.0",
-                        icon = null,
+                        icon = "https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg",
                         distribution = AcpAgentRegistryService.AgentDistribution(
                             npx = AcpAgentRegistryService.CommandDistribution(
                                 `package` = "@zed-industries/codex-acp@0.11.1"
@@ -56,6 +59,9 @@ class AcpAgentsConfigServiceTest : BasePlatformTestCase() {
                 )
             )
         )
+        val iconPath = requireNotNull(iconService.cachedIconPath("codex-acp", "https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg"))
+        iconPath.parent.createDirectories()
+        Files.writeString(iconPath, """<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"></svg>""")
 
         val configService = project.getService(AcpAgentsConfigService::class.java)
         val installed = configService.getInstalledAgents()
@@ -64,6 +70,7 @@ class AcpAgentsConfigServiceTest : BasePlatformTestCase() {
         assertEquals("codex-acp", installed.single().registryAgentId)
         assertEquals("ACP adapter for OpenAI's coding assistant", installed.single().description)
         assertEquals("0.11.1", installed.single().version)
+        assertEquals(iconPath.toString(), installed.single().iconPath)
         assertEquals(InstallMethod.NPX, installed.single().installMethod)
     }
 

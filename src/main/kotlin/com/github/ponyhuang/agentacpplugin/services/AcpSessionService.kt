@@ -194,6 +194,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         val requestId: String,
         val toolCallId: String,
         val title: String,
+        val status: String = "in_progress",
         val options: List<PermissionOptionInfo>,
         val selectedOptionId: String?,
         val submitted: Boolean
@@ -1090,6 +1091,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         val updatedRequests = _pendingPermissionRequests.value.map { request ->
             if (request.requestId == requestId) {
                 request.copy(
+                    status = "completed",
                     selectedOptionId = optionId,
                     submitted = true
                 )

@@ -4,6 +4,7 @@ import com.agentclientprotocol.annotations.UnstableApi
 import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AgentNotifier
 import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
+import com.github.ponyhuang.agentacpplugin.services.AcpAgentIconService
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpChatViewPanel
@@ -58,6 +59,7 @@ class AcpToolWindowPanel(
     private val logger: Logger = Logger.getInstance(AcpToolWindowPanel::class.java)
 
     private val configService = project.service<com.github.ponyhuang.agentacpplugin.services.AcpAgentsConfigService>()
+    private val agentIconService = ApplicationManager.getApplication().getService(AcpAgentIconService::class.java)
     private val sessionService = project.service<AcpSessionService>()
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val isListingSessions = MutableStateFlow(false)
@@ -561,6 +563,7 @@ class AcpToolWindowPanel(
                 id = agent.id,
                 displayName = agent.displayName,
                 description = buildAgentDescription(agent),
+                icon = agentIconService.loadIcon(agent.iconPath),
                 agentDefinition = agent
             )
         }

@@ -2,6 +2,7 @@ package com.github.ponyhuang.agentacpplugin.settings
 
 import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentInstallationService
+import com.github.ponyhuang.agentacpplugin.services.AcpAgentIconService
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentRegistryService
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentsConfigService
 import com.intellij.ide.BrowserUtil
@@ -20,6 +21,8 @@ class AcpSettingsConfigurable : Configurable {
         get() = ApplicationManager.getApplication().getService(AcpAgentRegistryService::class.java)
     private val installationService: AcpAgentInstallationService
         get() = ApplicationManager.getApplication().getService(AcpAgentInstallationService::class.java)
+    private val iconService: AcpAgentIconService
+        get() = ApplicationManager.getApplication().getService(AcpAgentIconService::class.java)
 
     private var settingsComponent: AcpSettingsComponent? = null
 
@@ -101,6 +104,7 @@ class AcpSettingsConfigurable : Configurable {
             {
                 try {
                     snapshotHolder[0] = registryService.getSnapshot(forceRefresh = forceRefresh)
+                    snapshotHolder[0]?.let(iconService::prefetchIcons)
                 } catch (t: Throwable) {
                     failureHolder[0] = t
                 }
@@ -145,6 +149,7 @@ class AcpSettingsConfigurable : Configurable {
         }
         resultHolder[0]?.let { result ->
             settings.saveInstalledAgent(result.installedAgent)
+            iconService.prefetchIcon(registryAgent)
             notifyProjectsConfigChanged()
             settingsComponent?.setRegistryData(
                 snapshot = registryService.getCachedSnapshotOrNull(),

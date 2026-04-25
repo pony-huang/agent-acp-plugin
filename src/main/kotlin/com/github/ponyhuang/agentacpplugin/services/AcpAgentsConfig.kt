@@ -23,6 +23,8 @@ class AcpAgentsConfigService(private val project: Project) {
 
     private val registryService: AcpAgentRegistryService
         get() = ApplicationManager.getApplication().getService(AcpAgentRegistryService::class.java)
+    private val agentIconService: AcpAgentIconService
+        get() = ApplicationManager.getApplication().getService(AcpAgentIconService::class.java)
 
     private val _configChanges = MutableSharedFlow<AgentsConfig>(replay = 1, extraBufferCapacity = 16)
     val configChanges: SharedFlow<AgentsConfig> = _configChanges.asSharedFlow()
@@ -36,6 +38,7 @@ class AcpAgentsConfigService(private val project: Project) {
                 displayName = installed.displayName,
                 description = registryAgent?.description ?: installed.description.ifBlank { MyBundle.message("agents.installedDefaultDescription") },
                 version = installed.installedVersion.ifBlank { registryAgent?.version.orEmpty() },
+                iconPath = agentIconService.resolveCachedIconPath(installed.registryAgentId, registryAgent?.icon),
                 installMethod = installed.installMethod,
                 sourceLabel = installed.sourceLabel.ifBlank {
                     if (installed.isLegacy) MyBundle.message("agents.source.legacy") else MyBundle.message("agents.source.official")

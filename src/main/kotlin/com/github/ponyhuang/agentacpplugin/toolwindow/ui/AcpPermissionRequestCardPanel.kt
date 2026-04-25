@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.ToolStatusIcon
 import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.Box
@@ -21,6 +22,7 @@ internal class PermissionRequestCardPanel(
 ) : JPanel() {
     private var currentRequest = request
     private val titleLabel = JBLabel()
+    private val statusIcon = ToolStatusIcon(request.status)
     private val buttonGroup = ButtonGroup()
     private val radios = mutableListOf<Pair<AcpSessionService.PermissionOptionInfo, JRadioButton>>()
     private val submitButton = JButton().apply {
@@ -52,10 +54,12 @@ internal class PermissionRequestCardPanel(
             }
         )
         chrome.contentPanel.add(
-            titleLabel.apply {
-                foreground = UIUtil.getLabelForeground()
-                border = JBUI.Borders.emptyBottom(8)
+            JPanel(BorderLayout(JBUI.scale(4), 0)).apply {
+                isOpaque = false
                 alignmentX = LEFT_ALIGNMENT
+                border = JBUI.Borders.emptyBottom(8)
+                add(titleLabel, BorderLayout.WEST)
+                add(statusIcon, BorderLayout.EAST)
             }
         )
         rebuildOptions()
@@ -76,6 +80,7 @@ internal class PermissionRequestCardPanel(
 
     private fun rebuildOptions() {
         titleLabel.text = currentRequest.title
+        titleLabel.foreground = UIUtil.getLabelForeground()
 
         val contentPanel = templateContentPanel()
         while (contentPanel.componentCount > 2) {
@@ -115,6 +120,7 @@ internal class PermissionRequestCardPanel(
 
     private fun applyRequestState() {
         titleLabel.text = currentRequest.title
+        statusIcon.updateStatus(currentRequest.status)
         radios.forEachIndexed { index, (option, radio) ->
             radio.isSelected =
                 currentRequest.selectedOptionId == option.optionId ||

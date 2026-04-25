@@ -11,6 +11,7 @@ object AgentRegistry {
         val displayName: String,
         val description: String,
         val version: String,
+        val iconPath: String?,
         val installMethod: InstallMethod,
         val sourceLabel: String,
         val command: String,
