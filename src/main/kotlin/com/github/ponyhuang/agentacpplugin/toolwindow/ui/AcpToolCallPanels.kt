@@ -3,12 +3,13 @@ package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.diff.DiffContentFactory
+import com.intellij.diff.DiffDialogHints
 import com.intellij.diff.DiffManager
-import com.intellij.diff.DiffRequestPanel
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -26,10 +27,16 @@ internal class ToolCallRow(
     toolCall: AcpSessionService.ToolCallInfo
 ) : JPanel(), Disposable {
     private val titleLabel = JBLabel()
+    private val openDiffLink = ActionLink(MyBundle.message("toolcall.diff.openPreview")) {
+        openAllDiffPreviews()
+    }.apply {
+        isVisible = false
+        border = JBUI.Borders.emptyRight(8)
+    }
     private val statusLabel = ToolStatusLabel(toolCall.status)
     private val detailsPanel = JPanel()
     private val diffContainer = JPanel()
-    private val diffPreviewPanels = mutableListOf<DiffRequestPanel>()
+    private var currentDiffContents: List<AcpSessionService.ToolCallDiffInfo> = emptyList()
 
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
@@ -46,10 +53,17 @@ internal class ToolCallRow(
             JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
                 isOpaque = false
                 add(
-                    titleLabel.apply {
-                        foreground = UIUtil.getLabelForeground()
+                    JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
+                        isOpaque = false
+                        add(
+                            titleLabel.apply {
+                                foreground = UIUtil.getLabelForeground()
+                            },
+                            BorderLayout.CENTER
+                        )
+                        add(openDiffLink, BorderLayout.EAST)
                     },
-                    BorderLayout.WEST
+                    BorderLayout.CENTER
                 )
                 add(statusLabel, BorderLayout.EAST)
                 alignmentX = LEFT_ALIGNMENT
@@ -73,6 +87,7 @@ internal class ToolCallRow(
     fun update(toolCall: AcpSessionService.ToolCallInfo) {
         titleLabel.text = "${toolKindDisplay(toolCall.kind)} ${toolCall.title}"
         statusLabel.updateStatus(toolCall.status)
+        openDiffLink.isVisible = toolCall.diffContents.isNotEmpty()
         detailsPanel.removeAll()
         val details = buildList {
             toolCall.locations.firstOrNull()?.let { add(it) }
@@ -93,9 +108,14 @@ internal class ToolCallRow(
     }
 
     private fun rebuildDiffPreviews(diffContents: List<AcpSessionService.ToolCallDiffInfo>) {
-        diffPreviewPanels.forEach(DiffRequestPanel::dispose)
-        diffPreviewPanels.clear()
+        currentDiffContents = diffContents
         diffContainer.removeAll()
+
+        if (diffContents.isEmpty()) {
+            diffContainer.isVisible = false
+            return
+        }
+        diffContainer.isVisible = true
 
         diffContents.forEachIndexed { index, diff ->
             if (index > 0) {
@@ -106,47 +126,46 @@ internal class ToolCallRow(
     }
 
     private fun createDiffPreviewComponent(diff: AcpSessionService.ToolCallDiffInfo): JComponent {
-        val requestPanel = DiffManager.getInstance().createRequestPanel(project, this, null)
-        diffPreviewPanels += requestPanel
-
-        val contentFactory = DiffContentFactory.getInstance()
-        val beforeContent = contentFactory.create(project, diff.oldText.orEmpty())
-        val afterContent = contentFactory.create(project, diff.newText)
-        requestPanel.setRequest(
-            SimpleDiffRequest(
-                diff.path,
-                beforeContent,
-                afterContent,
-                MyBundle.message("toolcall.diff.before"),
-                MyBundle.message("toolcall.diff.after")
-            ),
-            diff.path
-        )
-
-        return JPanel(BorderLayout()).apply {
+        return JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
             isOpaque = false
             alignmentX = LEFT_ALIGNMENT
-            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(220))
-            preferredSize = Dimension(JBUI.scale(560), JBUI.scale(180))
-            border = JBUI.Borders.compound(
-                JBUI.Borders.emptyTop(4),
-                BorderFactory.createLineBorder(UIUtil.getBoundsColor())
-            )
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+            border = JBUI.Borders.compound(JBUI.Borders.emptyTop(4), BorderFactory.createLineBorder(UIUtil.getBoundsColor()))
             add(
                 JBLabel(diff.path).apply {
                     foreground = UIUtil.getContextHelpForeground()
-                    border = JBUI.Borders.empty(6, 8, 4, 8)
+                    border = JBUI.Borders.empty(6, 8)
                 },
-                BorderLayout.NORTH
+                BorderLayout.CENTER
             )
-            add(requestPanel.component, BorderLayout.CENTER)
+            add(
+                ActionLink(MyBundle.message("toolcall.diff.openPreview")) {
+                    openDiffPreview(diff)
+                }.apply {
+                    border = JBUI.Borders.empty(6, 8)
+                },
+                BorderLayout.EAST
+            )
         }
     }
 
-    override fun dispose() {
-        diffPreviewPanels.forEach(DiffRequestPanel::dispose)
-        diffPreviewPanels.clear()
+    private fun openDiffPreview(diff: AcpSessionService.ToolCallDiffInfo) {
+        val contentFactory = DiffContentFactory.getInstance()
+        val request = SimpleDiffRequest(
+            diff.path,
+            contentFactory.create(project, diff.oldText.orEmpty()),
+            contentFactory.create(project, diff.newText),
+            MyBundle.message("toolcall.diff.before"),
+            MyBundle.message("toolcall.diff.after")
+        )
+        DiffManager.getInstance().showDiff(project, request, DiffDialogHints.FRAME)
     }
+
+    private fun openAllDiffPreviews() {
+        currentDiffContents.firstOrNull()?.let(::openDiffPreview)
+    }
+
+    override fun dispose() = Unit
 }
 
 internal class ToolStatusLabel(status: String) : JPanel(BorderLayout(JBUI.scale(4), 0)) {

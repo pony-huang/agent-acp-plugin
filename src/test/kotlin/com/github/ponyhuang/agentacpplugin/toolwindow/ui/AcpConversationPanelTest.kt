@@ -450,8 +450,12 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             val diffContainer = row.javaClass.getDeclaredField("diffContainer").apply {
                 isAccessible = true
             }.get(row) as JPanel
+            val openDiffLink = row.javaClass.getDeclaredField("openDiffLink").apply {
+                isAccessible = true
+            }.get(row) as ActionLink
 
             assertEquals(1, diffContainer.componentCount)
+            assertTrue(openDiffLink.isVisible)
         } finally {
             row.javaClass.getMethod("dispose").invoke(row)
         }
