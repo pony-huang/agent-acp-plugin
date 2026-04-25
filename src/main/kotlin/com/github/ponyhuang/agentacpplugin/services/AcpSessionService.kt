@@ -153,9 +153,15 @@ class AcpSessionService(private val project: Project) : Disposable {
         val title: String,
         val status: String = "pending",
         val kind: String? = null,
-        val locations: List<String> = emptyList(),
+        val locations: List<ToolCallLocationInfo> = emptyList(),
         val contentSummary: String? = null,
         val diffContents: List<ToolCallDiffInfo> = emptyList()
+    )
+
+    data class ToolCallLocationInfo(
+        val displayText: String,
+        val path: String,
+        val line: Int? = null
     )
 
     data class ToolCallDiffInfo(
@@ -639,8 +645,8 @@ class AcpSessionService(private val project: Project) : Disposable {
             title = title,
             status = status,
             kind = kind,
-            locations = update.locations.map { it.toDisplayString() },
-            contentSummary = summarizeToolCallContent(update.content),
+            locations = update.locations.map { it.toInfo() },
+            contentSummary = summaryForTool(kind, update.content),
             diffContents = extractDiffToolCallContent(update.content)
         )
         val assistantMessage = ensureAssistantMessage()
@@ -660,7 +666,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         val toolCallId = update.toolCallId.value
         val updatedStatus = update.status?.toUiValue()
         val updatedSummary = summarizeToolCallContent(update.content)
-        val updatedLocations = update.locations?.map { it.toDisplayString() }
+        val updatedLocations = update.locations?.map { it.toInfo() }
         updatedStatus?.let { trackToolCallStatus(toolCallId, it) }
 
         // Update the tool call in messages
@@ -673,12 +679,13 @@ class AcpSessionService(private val project: Project) : Disposable {
             ) {
                 val updatedToolCalls = msg.toolCalls.map { tc ->
                     if (tc.toolCallId == toolCallId) {
+                        val nextKind = update.kind?.toUiValue() ?: tc.kind
                         tc.copy(
                             title = update.title ?: tc.title,
-                            kind = update.kind?.toUiValue() ?: tc.kind,
+                            kind = nextKind,
                             status = updatedStatus ?: tc.status,
                             locations = updatedLocations ?: tc.locations,
-                            contentSummary = updatedSummary ?: tc.contentSummary,
+                            contentSummary = mergeSummary(nextKind, updatedSummary, tc.contentSummary),
                             diffContents = extractDiffToolCallContent(update.content).ifEmpty { tc.diffContents }
                         )
                     } else tc
@@ -687,13 +694,14 @@ class AcpSessionService(private val project: Project) : Disposable {
                     when (entry) {
                         is MessageEntry.ToolCall -> {
                             if (entry.toolCall.toolCallId == toolCallId) {
+                                val nextKind = update.kind?.toUiValue() ?: entry.toolCall.kind
                                 entry.copy(
                                     toolCall = entry.toolCall.copy(
                                         title = update.title ?: entry.toolCall.title,
-                                        kind = update.kind?.toUiValue() ?: entry.toolCall.kind,
+                                        kind = nextKind,
                                         status = updatedStatus ?: entry.toolCall.status,
                                         locations = updatedLocations ?: entry.toolCall.locations,
-                                        contentSummary = updatedSummary ?: entry.toolCall.contentSummary,
+                                        contentSummary = mergeSummary(nextKind, updatedSummary, entry.toolCall.contentSummary),
                                         diffContents = extractDiffToolCallContent(update.content).ifEmpty { entry.toolCall.diffContents }
                                     )
                                 )
@@ -903,6 +911,20 @@ class AcpSessionService(private val project: Project) : Disposable {
                 else -> null
             }
         }
+    }
+
+    private fun summaryForTool(kind: String?, content: List<ToolCallContent>?): String? {
+        if (kind.isReadToolKind()) {
+            return null
+        }
+        return summarizeToolCallContent(content)
+    }
+
+    private fun mergeSummary(kind: String?, updatedSummary: String?, existingSummary: String?): String? {
+        if (kind.isReadToolKind()) {
+            return null
+        }
+        return updatedSummary ?: existingSummary
     }
 
     private fun consumePendingPromptEcho(content: String): Boolean {
@@ -1156,8 +1178,14 @@ class AcpSessionService(private val project: Project) : Disposable {
         }
     }
 
-    private fun ToolCallLocation.toDisplayString(): String {
-        return line?.let { "$path:$it" } ?: path
+    private fun ToolCallLocation.toInfo(): ToolCallLocationInfo {
+        val lineNumber = line?.toInt()
+        val displayText = lineNumber?.let { "$path:$it" } ?: path
+        return ToolCallLocationInfo(
+            displayText = displayText,
+            path = path,
+            line = lineNumber
+        )
     }
 
     private fun PlanEntryPriority.toUiValue(): String {
@@ -1179,6 +1207,8 @@ class AcpSessionService(private val project: Project) : Disposable {
     private fun String.isTerminalToolStatus(): Boolean {
         return this == "completed" || this == "failed" || this == TOOL_STATUS_CANCELLED
     }
+
+    private fun String?.isReadToolKind(): Boolean = this == "read"
 }
 
 private fun legacyEntries(

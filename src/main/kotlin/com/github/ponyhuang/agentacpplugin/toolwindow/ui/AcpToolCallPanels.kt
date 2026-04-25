@@ -8,13 +8,19 @@ import com.intellij.diff.DiffManager
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.guessProjectDir
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.nio.file.InvalidPathException
+import java.nio.file.Path
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
@@ -89,22 +95,71 @@ internal class ToolCallRow(
         statusLabel.updateStatus(toolCall.status)
         openDiffLink.isVisible = toolCall.diffContents.isNotEmpty()
         detailsPanel.removeAll()
-        val details = buildList {
-            toolCall.locations.firstOrNull()?.let { add(it) }
-            toolCall.contentSummary?.takeIf { it.isNotBlank() }?.let { add(it) }
+        val detailComponents = buildList {
+            toolCall.locations.firstOrNull()?.let { add(createLocationComponent(toolCall.kind, it)) }
+            if (toolCall.kind != "read") {
+                toolCall.contentSummary?.takeIf { it.isNotBlank() }?.let { add(createDetailLabel(it)) }
+            }
         }
-        details.forEachIndexed { index, line ->
-            detailsPanel.add(
-                JBLabel(line).apply {
-                    foreground = UIUtil.getContextHelpForeground()
-                    border = if (index == 0) JBUI.Borders.empty() else JBUI.Borders.emptyTop(2)
-                    alignmentX = LEFT_ALIGNMENT
-                }
-            )
+        detailComponents.forEachIndexed { index, component ->
+            component.border = if (index == 0) JBUI.Borders.empty() else JBUI.Borders.emptyTop(2)
+            detailsPanel.add(component)
         }
         rebuildDiffPreviews(toolCall.diffContents)
         revalidate()
         repaint()
+    }
+
+    private fun createLocationComponent(
+        toolKind: String?,
+        location: AcpSessionService.ToolCallLocationInfo
+    ): JComponent {
+        val file = if (toolKind == "read") resolveNavigableFile(location.path) else null
+        return if (file != null) {
+            ActionLink(linkTextFor(location, file)) {
+                val descriptor = location.line?.let { line ->
+                    OpenFileDescriptor(project, file, line.minus(1).coerceAtLeast(0), 0)
+                } ?: OpenFileDescriptor(project, file)
+                descriptor.navigate(true)
+            }.apply {
+                alignmentX = LEFT_ALIGNMENT
+            }
+        } else {
+            createDetailLabel(location.displayText)
+        }
+    }
+
+    private fun createDetailLabel(text: String): JBLabel {
+        return JBLabel(text).apply {
+            foreground = UIUtil.getContextHelpForeground()
+            alignmentX = LEFT_ALIGNMENT
+        }
+    }
+
+    private fun linkTextFor(
+        location: AcpSessionService.ToolCallLocationInfo,
+        file: VirtualFile
+    ): String {
+        return file.name.ifBlank {
+            Path.of(location.path).fileName?.toString().orEmpty().ifBlank { location.displayText }
+        }
+    }
+
+    private fun resolveNavigableFile(pathText: String): VirtualFile? = try {
+        val nioPath = Path.of(pathText).let { rawPath ->
+            if (!rawPath.isAbsolute) {
+                project.guessProjectDir()?.findFileByRelativePath(pathText)?.let { return it }
+            }
+            if (rawPath.isAbsolute) {
+                rawPath.normalize()
+            } else {
+                val projectBasePath = project.basePath ?: return null
+                Path.of(projectBasePath).resolve(rawPath).normalize()
+            }
+        }
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(nioPath)
+    } catch (_: InvalidPathException) {
+        null
     }
 
     private fun rebuildDiffPreviews(diffContents: List<AcpSessionService.ToolCallDiffInfo>) {

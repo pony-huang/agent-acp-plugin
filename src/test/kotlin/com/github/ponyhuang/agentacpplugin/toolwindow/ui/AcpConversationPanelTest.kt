@@ -149,7 +149,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
                     title = "Read file",
                     status = "completed",
                     kind = "read",
-                    locations = listOf("src/Main.kt:12"),
+                    locations = listOf(locationInfo("src/Main.kt:12", "src/Main.kt", 12)),
                     contentSummary = "done"
                 )
             )
@@ -427,6 +427,44 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
 
         assertNotNull(statusText)
         assertEquals(AllIcons.Actions.Cancel, statusIcon.icon)
+    }
+
+    fun testReadToolCallRowUsesActionLinkForExistingFileAndHidesSummary() {
+        myFixture.addFileToProject("src/Main.kt", "class Main")
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-read-link",
+                title = "Read file",
+                status = "completed",
+                kind = "read",
+                locations = listOf(locationInfo("src/Main.kt:12", "src/Main.kt", 12)),
+                contentSummary = "This content should stay hidden"
+            )
+        )
+
+        val locationLink = findAllByType(row, ActionLink::class.java).firstOrNull { it.text == "Main.kt" }
+        val hiddenSummary = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "This content should stay hidden" }
+
+        assertNotNull(locationLink)
+        assertNull(hiddenSummary)
+    }
+
+    fun testReadToolCallRowFallsBackToLabelWhenFileDoesNotExist() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-read-missing",
+                title = "Read file",
+                status = "completed",
+                kind = "read",
+                locations = listOf(locationInfo("missing/File.kt:3", "missing/File.kt", 3))
+            )
+        )
+
+        val locationLink = findAllByType(row, ActionLink::class.java).firstOrNull { it.text == "missing/File.kt:3" }
+        val locationLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "missing/File.kt:3" }
+
+        assertNull(locationLink)
+        assertNotNull(locationLabel)
     }
 
     fun testToolCallRowEmbedsDiffPreviewWhenDiffContentExists() {
@@ -938,4 +976,14 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             entries = listOf(AcpSessionService.MessageEntry.PermissionRequest(request))
         )
     }
+
+    private fun locationInfo(
+        displayText: String,
+        path: String,
+        line: Int? = null
+    ) = AcpSessionService.ToolCallLocationInfo(
+        displayText = displayText,
+        path = path,
+        line = line
+    )
 }

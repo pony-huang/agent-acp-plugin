@@ -96,9 +96,41 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         val toolCall = messages.single().toolCalls.single()
         assertEquals("read", toolCall.kind)
         assertEquals("in_progress", toolCall.status)
-        assertEquals(listOf("src/Main.kt:12"), toolCall.locations)
-        assertEquals("Terminal: term-1", toolCall.contentSummary)
+        assertEquals(
+            listOf(
+                AcpSessionService.ToolCallLocationInfo(
+                    displayText = "src/Main.kt:12",
+                    path = "src/Main.kt",
+                    line = 12
+                )
+            ),
+            toolCall.locations
+        )
+        assertNull(toolCall.contentSummary)
         assertTrue(messages.single().entries.any { it is AcpSessionService.MessageEntry.ToolCall })
+    }
+
+    fun testNonReadToolCallKeepsContentSummary() {
+        service.applySessionUpdate(SessionUpdate.AgentMessageChunk(ContentBlock.Text("Working")))
+
+        service.applySessionUpdate(
+            SessionUpdate.ToolCall(
+                toolCallId = ToolCallId("tool-search"),
+                title = "Search workspace",
+                kind = ToolKind.SEARCH,
+                status = ToolCallStatus.IN_PROGRESS
+            )
+        )
+        service.applySessionUpdate(
+            SessionUpdate.ToolCallUpdate(
+                toolCallId = ToolCallId("tool-search"),
+                content = listOf(ToolCallContent.Terminal("term-search"))
+            )
+        )
+
+        val toolCall = service.messages.value.single().toolCalls.single()
+        assertEquals("search", toolCall.kind)
+        assertEquals("Terminal: term-search", toolCall.contentSummary)
     }
 
     fun testToolCallPreservesStructuredDiffContent() {
