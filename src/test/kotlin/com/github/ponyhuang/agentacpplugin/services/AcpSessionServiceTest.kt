@@ -244,6 +244,32 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertNotNull(service.sessionUpdatedAt.value)
     }
 
+    fun testBuildSessionConnectTimeoutExceptionUsesConnectingMessage() {
+        val exception = service.buildSessionConnectTimeoutException(
+            agentDisplayName = "Claude Agent",
+            reconnecting = false
+        )
+
+        assertEquals(
+            "Timed out while connecting to 'Claude Agent'. Check whether the agent is installed and can start in ACP mode.",
+            exception.message
+        )
+        assertNull(exception.cause)
+    }
+
+    fun testBuildSessionConnectTimeoutExceptionUsesReconnectingMessage() {
+        val exception = service.buildSessionConnectTimeoutException(
+            agentDisplayName = "Claude Agent",
+            reconnecting = true
+        )
+
+        assertEquals(
+            "Timed out while reconnecting to 'Claude Agent'. Check whether the agent is installed and can start in ACP mode.",
+            exception.message
+        )
+        assertNull(exception.cause)
+    }
+
     fun testCancelImmediatelyLeavesRunningStateAndMarksPromptCancelled() = runBlocking {
         var cancelCalled = false
         setCurrentSession(

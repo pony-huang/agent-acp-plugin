@@ -300,11 +300,11 @@ class AcpSessionService(private val project: Project) : Disposable {
             )
             persistenceService.addSession(savedSession)
         } catch (t: TimeoutCancellationException) {
-            logger.warn("Timed out while creating ACP session for agent ${agentDefinition.displayName}", t)
-            disconnect()
-            throw IllegalStateException(
-                "Timed out while connecting to '${agentDefinition.displayName}'. Check whether the agent is installed and can start in ACP mode.",
-                t
+            handleSessionStartupTimeout(
+                operation = "creating",
+                agentDisplayName = agentDefinition.displayName,
+                reconnecting = false,
+                cause = t
             )
         } catch (t: Throwable) {
             logger.warn("Failed to create ACP session for agent ${agentDefinition.displayName}", t)
@@ -375,11 +375,11 @@ class AcpSessionService(private val project: Project) : Disposable {
                 saved.copy(lastUpdated = System.currentTimeMillis())
             }
         } catch (t: TimeoutCancellationException) {
-            logger.warn("Timed out while resuming ACP session $sessionId for agent ${agentDefinition.displayName}", t)
-            disconnect()
-            throw IllegalStateException(
-                "Timed out while reconnecting to '${agentDefinition.displayName}'. Check whether the agent is installed and can start in ACP mode.",
-                t
+            handleSessionStartupTimeout(
+                operation = "resuming session $sessionId for",
+                agentDisplayName = agentDefinition.displayName,
+                reconnecting = true,
+                cause = t
             )
         } catch (t: Throwable) {
             logger.warn("Failed to resume ACP session $sessionId for agent ${agentDefinition.displayName}", t)
@@ -445,6 +445,31 @@ class AcpSessionService(private val project: Project) : Disposable {
                     scope.cancel()
                 }
             }
+        }
+    }
+
+    internal fun buildSessionConnectTimeoutException(
+        agentDisplayName: String,
+        reconnecting: Boolean
+    ): IllegalStateException {
+        val action = if (reconnecting) "reconnecting" else "connecting"
+        return IllegalStateException(
+            "Timed out while $action to '$agentDisplayName'. Check whether the agent is installed and can start in ACP mode."
+        )
+    }
+
+    private fun handleSessionStartupTimeout(
+        operation: String,
+        agentDisplayName: String,
+        reconnecting: Boolean,
+        cause: TimeoutCancellationException
+    ): Nothing {
+        logger.warn(
+            "Timed out while $operation ACP session for agent $agentDisplayName after $SESSION_CONNECT_TIMEOUT_MS ms"
+        )
+        disconnect()
+        throw buildSessionConnectTimeoutException(agentDisplayName, reconnecting).apply {
+            initCause(cause)
         }
     }
 

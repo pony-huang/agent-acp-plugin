@@ -144,21 +144,18 @@ class AcpToolWindowPanel(
                     }
                 } catch (t: Throwable) {
                     logger.warn("Failed to toggle ACP session", t)
+                    val selectedAgentName = userInputPanel.selectedAgent()?.displayName
                     val title = if (sessionService.isConnected.value && sessionService.isLoading.value) {
                         MyBundle.message("notification.failedInterrupt")
                     } else if (sessionService.isConnected.value) {
                         MyBundle.message("notification.failedDisconnect")
                     } else {
-                        MyBundle.message("notification.failedConnect", userInputPanel.selectedAgent()?.displayName ?: MyBundle.message("combobox.selectAgent"))
+                        MyBundle.message("notification.failedConnect", selectedAgentName ?: MyBundle.message("combobox.selectAgent"))
                     }
-                    Notifications.Bus.notify(
-                        Notification(
-                            MyBundle.message("notification.connectionError"),
-                            title,
-                            t.message ?: MyBundle.message("notification.unknownError"),
-                            NotificationType.ERROR
-                        ),
-                        project
+                    notifyError(
+                        groupTitle = MyBundle.message("notification.connectionError"),
+                        title = title,
+                        content = t.message ?: MyBundle.message("notification.unknownError")
                     )
                 }
             }
@@ -168,7 +165,16 @@ class AcpToolWindowPanel(
                 logger.info("Selected ACP agent: id=${agentItem.id}, displayName=${agentItem.displayName}")
                 if (!sessionService.isLoading.value) {
                     uiScope.launch {
-                        switchOrConnectSelectedAgent(agentItem.agentDefinition)
+                        try {
+                            switchOrConnectSelectedAgent(agentItem.agentDefinition)
+                        } catch (t: Throwable) {
+                            logger.warn("Failed to switch ACP session to ${agentItem.displayName}", t)
+                            notifyError(
+                                groupTitle = MyBundle.message("notification.connectionError"),
+                                title = MyBundle.message("notification.failedConnect", agentItem.displayName),
+                                content = t.message ?: MyBundle.message("notification.unknownError")
+                            )
+                        }
                     }
                 }
             }
@@ -421,14 +427,10 @@ class AcpToolWindowPanel(
                 )
             } catch (t: Throwable) {
                 logger.warn("Failed to create a new ACP session for ${agent.displayName}", t)
-                Notifications.Bus.notify(
-                    Notification(
-                        MyBundle.message("notification.acpSessions"),
-                        MyBundle.message("notification.failedCreateSession"),
-                        t.message ?: MyBundle.message("notification.unknownError"),
-                        NotificationType.ERROR
-                    ),
-                    project
+                notifyError(
+                    groupTitle = MyBundle.message("notification.acpSessions"),
+                    title = MyBundle.message("notification.failedCreateSession"),
+                    content = t.message ?: MyBundle.message("notification.unknownError")
                 )
             }
         }
@@ -528,17 +530,25 @@ class AcpToolWindowPanel(
                 )
             } catch (t: Throwable) {
                 logger.warn("Failed to resume ACP session $sessionId", t)
-                Notifications.Bus.notify(
-                    Notification(
-                        MyBundle.message("notification.acpSessions"),
-                        MyBundle.message("notification.failedResumeSession"),
-                        t.message ?: MyBundle.message("notification.unknownError"),
-                        NotificationType.ERROR
-                    ),
-                    project
+                notifyError(
+                    groupTitle = MyBundle.message("notification.acpSessions"),
+                    title = MyBundle.message("notification.failedResumeSession"),
+                    content = t.message ?: MyBundle.message("notification.unknownError")
                 )
             }
         }
+    }
+
+    private fun notifyError(groupTitle: String, title: String, content: String) {
+        Notifications.Bus.notify(
+            Notification(
+                groupTitle,
+                title,
+                content,
+                NotificationType.ERROR
+            ),
+            project
+        )
     }
 
     private fun updatePlanEntries(entries: List<AcpSessionService.SessionPlanItem>) {

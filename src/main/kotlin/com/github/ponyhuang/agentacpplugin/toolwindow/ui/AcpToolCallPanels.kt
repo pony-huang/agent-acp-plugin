@@ -97,9 +97,6 @@ internal class ToolCallRow(
         detailsPanel.removeAll()
         val detailComponents = buildList {
             toolCall.locations.firstOrNull()?.let { add(createLocationComponent(toolCall.kind, it)) }
-            if (toolCall.kind != "read") {
-                toolCall.contentSummary?.takeIf { it.isNotBlank() }?.let { add(createDetailLabel(it)) }
-            }
         }
         detailComponents.forEachIndexed { index, component ->
             component.border = if (index == 0) JBUI.Borders.empty() else JBUI.Borders.emptyTop(2)
