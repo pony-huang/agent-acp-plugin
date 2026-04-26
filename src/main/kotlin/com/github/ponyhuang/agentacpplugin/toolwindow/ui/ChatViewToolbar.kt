@@ -13,7 +13,7 @@ import java.awt.FlowLayout
 import javax.swing.JLabel
 import javax.swing.JPanel
 
-class AcpChatViewToolbar(
+class ChatViewToolbar(
     private val isLoading: () -> Boolean,
     private val isListingSessions: () -> Boolean = { false },
     private val hasSelectedAgent: () -> Boolean = { false },

@@ -6,7 +6,6 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import com.github.ponyhuang.agentacpplugin.toolwindow.ui.ToolStatusIcon
 import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.Box

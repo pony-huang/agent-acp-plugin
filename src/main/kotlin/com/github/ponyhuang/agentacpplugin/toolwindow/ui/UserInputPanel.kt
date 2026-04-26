@@ -44,7 +44,7 @@ import javax.swing.event.DocumentListener
 /**
  * @author: pony
  */
-class AcpUserInputPanel(
+class UserInputPanel(
     val project: Project,
     agentItems: List<AgentComboBoxAction.AgentItem>,
     private val agentNotifier: AgentNotifier? = null,

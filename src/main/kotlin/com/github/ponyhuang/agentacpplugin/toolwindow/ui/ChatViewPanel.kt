@@ -30,7 +30,7 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
-class AcpChatViewPanel(
+class ChatViewPanel(
     project: Project,
     parentDisposable: Disposable
 ) : JPanel(BorderLayout()), Disposable {

@@ -7,7 +7,7 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
 
     @Suppress("DEPRECATION")
     fun testToolbarExposesSessionAction() {
-        val acpChatViewToolbar = AcpChatViewToolbar(
+        val chatViewToolbar = ChatViewToolbar(
             isLoading = { false },
             isListingSessions = { false },
             hasSelectedAgent = { true },
@@ -16,17 +16,17 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
             onCancel = {}
         )
 
-        assertFalse(acpChatViewToolbar.isStopActionEnabled())
-        assertNotNull(acpChatViewToolbar.toolbar.component)
-        assertEquals(2, acpChatViewToolbar.actionGroup.childActionsOrStubs.size)
-        assertTrue(acpChatViewToolbar.isNewSessionActionEnabled())
-        assertTrue(acpChatViewToolbar.isSessionActionEnabled())
-        assertTrue(acpChatViewToolbar.actionGroup.childActionsOrStubs.all { (it as AnAction).displayTextInToolbar() })
+        assertFalse(chatViewToolbar.isStopActionEnabled())
+        assertNotNull(chatViewToolbar.toolbar.component)
+        assertEquals(2, chatViewToolbar.actionGroup.childActionsOrStubs.size)
+        assertTrue(chatViewToolbar.isNewSessionActionEnabled())
+        assertTrue(chatViewToolbar.isSessionActionEnabled())
+        assertTrue(chatViewToolbar.actionGroup.childActionsOrStubs.all { (it as AnAction).displayTextInToolbar() })
     }
 
     fun testNewSessionActionDisabledWithoutSelectedAgent() {
         var created = false
-        val acpChatViewToolbar = AcpChatViewToolbar(
+        val chatViewToolbar = ChatViewToolbar(
             isLoading = { false },
             isListingSessions = { false },
             hasSelectedAgent = { false },
@@ -35,15 +35,15 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
             onCancel = {}
         )
 
-        acpChatViewToolbar.performNewSessionAction()
+        chatViewToolbar.performNewSessionAction()
 
-        assertFalse(acpChatViewToolbar.isNewSessionActionEnabled())
+        assertFalse(chatViewToolbar.isNewSessionActionEnabled())
         assertFalse(created)
     }
 
     fun testSessionActionDisabledWithoutSelectedAgent() {
         var opened = false
-        val acpChatViewToolbar = AcpChatViewToolbar(
+        val chatViewToolbar = ChatViewToolbar(
             isLoading = { false },
             isListingSessions = { false },
             hasSelectedAgent = { false },
@@ -52,15 +52,15 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
             onCancel = {}
         )
 
-        acpChatViewToolbar.performSessionAction()
+        chatViewToolbar.performSessionAction()
 
-        assertFalse(acpChatViewToolbar.isSessionActionEnabled())
+        assertFalse(chatViewToolbar.isSessionActionEnabled())
         assertFalse(opened)
     }
 
     fun testSessionActionDisabledWhileLoading() {
         var opened = false
-        val acpChatViewToolbar = AcpChatViewToolbar(
+        val chatViewToolbar = ChatViewToolbar(
             isLoading = { true },
             isListingSessions = { false },
             hasSelectedAgent = { true },
@@ -69,15 +69,15 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
             onCancel = {}
         )
 
-        acpChatViewToolbar.performSessionAction()
+        chatViewToolbar.performSessionAction()
 
-        assertFalse(acpChatViewToolbar.isSessionActionEnabled())
+        assertFalse(chatViewToolbar.isSessionActionEnabled())
         assertFalse(opened)
     }
 
     fun testPerformSessionActionInvokesPopupCallbackWhenEnabled() {
         var opened = false
-        val acpChatViewToolbar = AcpChatViewToolbar(
+        val chatViewToolbar = ChatViewToolbar(
             isLoading = { false },
             isListingSessions = { false },
             hasSelectedAgent = { true },
@@ -86,13 +86,13 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
             onCancel = {}
         )
 
-        acpChatViewToolbar.performSessionAction()
+        chatViewToolbar.performSessionAction()
 
         assertTrue(opened)
     }
 
     fun testSessionActionShowsLoadingIndicatorWhileListingSessions() {
-        val acpChatViewToolbar = AcpChatViewToolbar(
+        val chatViewToolbar = ChatViewToolbar(
             isLoading = { false },
             isListingSessions = { true },
             hasSelectedAgent = { true },
@@ -101,16 +101,16 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
             onCancel = {}
         )
 
-        acpChatViewToolbar.update()
+        chatViewToolbar.update()
 
-        assertFalse(acpChatViewToolbar.isNewSessionActionEnabled())
-        assertFalse(acpChatViewToolbar.isSessionActionEnabled())
-        assertTrue(acpChatViewToolbar.isSessionLoadingIndicatorVisible())
+        assertFalse(chatViewToolbar.isNewSessionActionEnabled())
+        assertFalse(chatViewToolbar.isSessionActionEnabled())
+        assertTrue(chatViewToolbar.isSessionLoadingIndicatorVisible())
     }
 
     fun testPerformNewSessionActionInvokesCallbackWhenEnabled() {
         var created = false
-        val acpChatViewToolbar = AcpChatViewToolbar(
+        val chatViewToolbar = ChatViewToolbar(
             isLoading = { false },
             isListingSessions = { false },
             hasSelectedAgent = { true },
@@ -119,7 +119,7 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
             onCancel = {}
         )
 
-        acpChatViewToolbar.performNewSessionAction()
+        chatViewToolbar.performNewSessionAction()
 
         assertTrue(created)
     }

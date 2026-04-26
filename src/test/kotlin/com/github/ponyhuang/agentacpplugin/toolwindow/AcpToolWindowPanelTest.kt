@@ -6,7 +6,7 @@ import com.agentclientprotocol.model.PlanEntryPriority
 import com.agentclientprotocol.model.PlanEntryStatus
 import com.agentclientprotocol.model.SessionUpdate
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
-import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.UserInputPanel
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.PlanEntriesPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.PlatformTestUtil
@@ -34,7 +34,7 @@ class AcpToolWindowPanelTest : BasePlatformTestCase() {
 
             val composerContainer = readField<Container>(panel, "composerContainer")
             val planEntriesPanel = readField<PlanEntriesPanel>(panel, "planEntriesPanel")
-            val userInputPanel = readField<AcpUserInputPanel>(panel, "userInputPanel")
+            val userInputPanel = readField<UserInputPanel>(panel, "userInputPanel")
             val layout = composerContainer.layout as BorderLayout
 
             assertSame(planEntriesPanel, layout.getLayoutComponent(BorderLayout.NORTH))
@@ -116,7 +116,7 @@ class AcpToolWindowPanelTest : BasePlatformTestCase() {
             val panel = AcpToolWindowPanel(project, disposable)
             val sessionService = project.getService(AcpSessionService::class.java)
             val composerContainer = readField<Container>(panel, "composerContainer")
-            val userInputPanel = readField<AcpUserInputPanel>(panel, "userInputPanel")
+            val userInputPanel = readField<UserInputPanel>(panel, "userInputPanel")
 
             sessionService.applySessionUpdate(
                 SessionUpdate.PlanUpdate(
@@ -157,7 +157,7 @@ class AcpToolWindowPanelTest : BasePlatformTestCase() {
             val sessionService = project.getService(AcpSessionService::class.java)
             val composerContainer = readField<Container>(panel, "composerContainer")
             val planEntriesPanel = readField<PlanEntriesPanel>(panel, "planEntriesPanel")
-            val userInputPanel = readField<AcpUserInputPanel>(panel, "userInputPanel")
+            val userInputPanel = readField<UserInputPanel>(panel, "userInputPanel")
 
             sessionService.applySessionUpdate(
                 SessionUpdate.PlanUpdate(

@@ -21,11 +21,11 @@ import javax.swing.SwingUtilities
 class AcpUserInputPanelTest : BasePlatformTestCase() {
 
     fun testCommandPopupTriggerRulesMatchSlashPrefixBehavior() {
-        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        val panel = UserInputPanel(project = project, agentItems = emptyList())
         panel.updateCommands(
             listOf(
-                AcpUserInputPanel.SessionCommandItem("help", "Show help"),
-                AcpUserInputPanel.SessionCommandItem("reset", "Reset session")
+                UserInputPanel.SessionCommandItem("help", "Show help"),
+                UserInputPanel.SessionCommandItem("reset", "Reset session")
             )
         )
 
@@ -40,12 +40,12 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
     }
 
     fun testCommandFilteringMatchesNamePrefixAndDescriptionText() {
-        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        val panel = UserInputPanel(project = project, agentItems = emptyList())
         panel.updateCommands(
             listOf(
-                AcpUserInputPanel.SessionCommandItem("help", "Show available commands"),
-                AcpUserInputPanel.SessionCommandItem("review", "Review current diff"),
-                AcpUserInputPanel.SessionCommandItem("reset", "Clear the conversation")
+                UserInputPanel.SessionCommandItem("help", "Show available commands"),
+                UserInputPanel.SessionCommandItem("review", "Review current diff"),
+                UserInputPanel.SessionCommandItem("reset", "Clear the conversation")
             )
         )
 
@@ -57,7 +57,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
 
     @OptIn(UnstableApi::class)
     fun testConnectedSessionEnablesSessionSelectorsAndActionButtons() {
-        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        val panel = UserInputPanel(project = project, agentItems = emptyList())
         panel.setSessionConnected(true)
         panel.updateModes(
             listOf(
@@ -93,7 +93,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
 
     @OptIn(UnstableApi::class)
     fun testBusyStateDisablesSelectorsAndActionButtons() {
-        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        val panel = UserInputPanel(project = project, agentItems = emptyList())
         panel.setSessionConnected(true)
         panel.updateModes(
             listOf(
@@ -130,7 +130,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
     }
 
     fun testConnectionButtonRemainsHiddenDuringBusyConnectedState() {
-        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        val panel = UserInputPanel(project = project, agentItems = emptyList())
         panel.setSessionConnected(true)
         panel.setBusy(ToolWindowComposerState.SENDING)
 
@@ -144,7 +144,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
     }
 
     fun testDisconnectedSessionKeepsSendDisabledAndHidesConnectionAction() {
-        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        val panel = UserInputPanel(project = project, agentItems = emptyList())
 
         assertFalse(readComponent(panel, "sendButton").isEnabled)
         assertFalse(readComponent(panel, "connectionButton").isVisible)
@@ -154,7 +154,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
     }
 
     fun testInitialStateHasNoSelectedAgent() {
-        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        val panel = UserInputPanel(project = project, agentItems = emptyList())
 
         assertNull(panel.selectedAgent())
 
@@ -162,7 +162,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
     }
 
     fun testConnectedSessionKeepsAgentSelectorEnabledForSwitching() {
-        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        val panel = UserInputPanel(project = project, agentItems = emptyList())
         panel.setSessionConnected(true)
 
         assertTrue(readComponent(panel, "agentComboBox").isEnabled)
@@ -171,7 +171,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
     }
 
     fun testSendActionSharesSessionControlsRow() {
-        val panel = AcpUserInputPanel(project = project, agentItems = emptyList())
+        val panel = UserInputPanel(project = project, agentItems = emptyList())
 
         val sessionControlsRow = readComponent(panel, "sessionControlsRow")
 
@@ -185,7 +185,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
     fun testPlanSelectionUsesLatestCallback() {
         var initialCallbackCount = 0
         var latestSelectedPlanId: String? = null
-        val panel = AcpUserInputPanel(
+        val panel = UserInputPanel(
             project = project,
             agentItems = emptyList(),
             onPlanChanged = { initialCallbackCount++ }
@@ -218,7 +218,7 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
     fun testModelSelectionUsesLatestCallback() {
         var initialCallbackCount = 0
         var latestSelectedModelId: String? = null
-        val panel = AcpUserInputPanel(
+        val panel = UserInputPanel(
             project = project,
             agentItems = emptyList(),
             onModelChanged = { initialCallbackCount++ }
@@ -247,17 +247,17 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
         panel.dispose()
     }
 
-    private fun readComponent(panel: AcpUserInputPanel, fieldName: String): JComponent {
+    private fun readComponent(panel: UserInputPanel, fieldName: String): JComponent {
         return panel.javaClass.getDeclaredField(fieldName).apply {
             isAccessible = true
         }.get(panel) as JComponent
     }
 
-    private fun readButton(panel: AcpUserInputPanel, fieldName: String) =
+    private fun readButton(panel: UserInputPanel, fieldName: String) =
         readComponent(panel, fieldName) as javax.swing.JButton
 
     private inline fun <reified T : ComboBoxAction> invokeComboBoxSelection(
-        panel: AcpUserInputPanel,
+        panel: UserInputPanel,
         fieldName: String,
         index: Int
     ) {

@@ -7,11 +7,11 @@ import com.github.ponyhuang.agentacpplugin.services.AgentRegistry
 import com.github.ponyhuang.agentacpplugin.services.AcpAgentIconService
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.github.ponyhuang.agentacpplugin.toolwindow.action.AgentComboBoxAction
-import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpChatViewPanel
-import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpUserInputPanel
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.ChatViewPanel
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.UserInputPanel
 import com.github.ponyhuang.agentacpplugin.toolwindow.ui.PlanEntriesPanel
 import com.agentclientprotocol.model.AvailableCommandInput
-import com.github.ponyhuang.agentacpplugin.toolwindow.ui.AcpChatViewToolbar
+import com.github.ponyhuang.agentacpplugin.toolwindow.ui.ChatViewToolbar
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
@@ -67,8 +67,8 @@ class AcpToolWindowPanel(
     // Create agent selection notifier for linkage
     private val agentNotifier = AgentNotifier()
 
-    private val conversationPanel = AcpChatViewPanel(project, disposable)
-    private val conversationAcpChatViewToolbar = AcpChatViewToolbar(
+    private val conversationPanel = ChatViewPanel(project, disposable)
+    private val conversationChatViewToolbar = ChatViewToolbar(
         isLoading = { sessionService.isLoading.value },
         isListingSessions = { isListingSessions.value },
         hasSelectedAgent = { userInputPanel.selectedAgent() != null },
@@ -90,7 +90,7 @@ class AcpToolWindowPanel(
     )
 
     // Initialize userInputPanel with linkage mechanism (callbacks set in init block)
-    private val userInputPanel = AcpUserInputPanel(
+    private val userInputPanel = UserInputPanel(
         project = project,
         agentItems = buildAgentItems(),
         agentNotifier = agentNotifier,
@@ -178,7 +178,7 @@ class AcpToolWindowPanel(
                     }
                 }
             }
-            conversationAcpChatViewToolbar.update()
+            conversationChatViewToolbar.update()
         }
         userInputPanel.onPlanChanged = { plan ->
             uiScope.launch {
@@ -204,7 +204,7 @@ class AcpToolWindowPanel(
             configService.configChanges.collectLatest {
                 runOnEdt {
                     userInputPanel.updateAgents(buildAgentItems())
-                    conversationAcpChatViewToolbar.update()
+                    conversationChatViewToolbar.update()
                 }
             }
         }
@@ -254,7 +254,7 @@ class AcpToolWindowPanel(
                 runOnEdt {
                     userInputPanel.updateCommands(
                         commands.map { command ->
-                            AcpUserInputPanel.SessionCommandItem(
+                            UserInputPanel.SessionCommandItem(
                                 name = command.name,
                                 description = command.description,
                                 hint = (command.input as? AvailableCommandInput.Unstructured)?.hint
@@ -281,19 +281,19 @@ class AcpToolWindowPanel(
         uiScope.launch {
             sessionService.isLoading.collectLatest {
                 runOnEdt {
-                    conversationAcpChatViewToolbar.update()
+                    conversationChatViewToolbar.update()
                 }
             }
         }
         uiScope.launch {
             isListingSessions.collectLatest {
                 runOnEdt {
-                    conversationAcpChatViewToolbar.update()
+                    conversationChatViewToolbar.update()
                 }
             }
         }
         Disposer.register(disposable, controller)
-        Disposer.register(disposable, conversationAcpChatViewToolbar)
+        Disposer.register(disposable, conversationChatViewToolbar)
         Disposer.register(disposable) { uiScope.cancel() }
         composerContainer.isOpaque = false
         composerContainer.add(planEntriesPanel, BorderLayout.NORTH)
@@ -308,7 +308,7 @@ class AcpToolWindowPanel(
         }
         splitter.setHonorComponentsMinimumSize(true)
         setContent(splitter)
-        toolbar = conversationAcpChatViewToolbar
+        toolbar = conversationChatViewToolbar
     }
 
     internal fun showSessionPopup() {
@@ -495,7 +495,7 @@ class AcpToolWindowPanel(
             .setCancelOnClickOutside(true)
             .setCancelOnOtherWindowOpen(true)
             .createPopup()
-        sessionsPopup?.showUnderneathOf(conversationAcpChatViewToolbar)
+        sessionsPopup?.showUnderneathOf(conversationChatViewToolbar)
     }
 
     internal fun buildLoadedSessionNotificationContent(
