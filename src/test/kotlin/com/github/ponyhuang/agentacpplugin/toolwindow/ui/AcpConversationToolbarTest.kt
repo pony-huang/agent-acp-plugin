@@ -1,7 +1,10 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
+import com.github.ponyhuang.agentacpplugin.toolwindow.ToolWindowComposerState
+import com.intellij.ui.AnimatedIcon
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import javax.swing.JLabel
 
 class AcpConversationToolbarTest : BasePlatformTestCase() {
 
@@ -122,5 +125,30 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
         chatViewToolbar.performNewSessionAction()
 
         assertTrue(created)
+    }
+
+    fun testConnectionStatusIndicatorAnimatesWhileConnecting() {
+        val chatViewToolbar = ChatViewToolbar(
+            isLoading = { true },
+            isListingSessions = { false },
+            hasSelectedAgent = { true },
+            onNewSession = {},
+            onShowSessions = {},
+            onCancel = {},
+            isSessionConnected = { true },
+            getComposerState = { ToolWindowComposerState.CONNECTING }
+        )
+
+        chatViewToolbar.updateConnectionStatus()
+
+        val indicator = readPrivateField<JLabel>(chatViewToolbar, "connectionStatusIndicator")
+        assertTrue(indicator.isVisible)
+        assertSame(AnimatedIcon.Default.INSTANCE, indicator.icon)
+    }
+
+    private inline fun <reified T> readPrivateField(target: Any, fieldName: String): T {
+        return target.javaClass.getDeclaredField(fieldName).apply {
+            isAccessible = true
+        }.get(target) as T
     }
 }

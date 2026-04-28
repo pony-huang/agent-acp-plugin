@@ -69,7 +69,7 @@ class AcpToolWindowPanel(
 
     private val conversationPanel = ChatViewPanel(project, disposable)
     private val conversationChatViewToolbar = ChatViewToolbar(
-        isLoading = { sessionService.isLoading.value },
+        isLoading = { isComposerBusy() },
         isListingSessions = { isListingSessions.value },
         hasSelectedAgent = { userInputPanel.selectedAgent() != null },
         onNewSession = { createNewSession() },
@@ -80,13 +80,7 @@ class AcpToolWindowPanel(
             }
         },
         isSessionConnected = { sessionService.isConnected.value },
-        getComposerState = {
-            when {
-                sessionService.isLoading.value && !sessionService.isConnected.value -> ToolWindowComposerState.CONNECTING
-                sessionService.isLoading.value -> ToolWindowComposerState.SENDING
-                else -> ToolWindowComposerState.IDLE
-            }
-        }
+        getComposerState = { currentComposerState() }
     )
 
     // Initialize userInputPanel with linkage mechanism (callbacks set in init block)
@@ -103,6 +97,21 @@ class AcpToolWindowPanel(
 
     private val controller = userInputPanel
     private var connectedAgentId: String? = null
+    private val agentSwitchController = AgentSwitchController(
+        scope = uiScope,
+        isConnected = { sessionService.isConnected.value },
+        currentConnectedAgentId = { connectedAgentId ?: sessionService.currentAgentId() },
+        disconnectCurrentAgent = { disconnectCurrentSession() },
+        connectAgent = { agent -> connectSelectedAgent(agent) },
+        onSwitchFailed = { agent, t ->
+            logger.warn("Failed to switch ACP session to ${agent.displayName}", t)
+            notifyError(
+                groupTitle = MyBundle.message("notification.connectionError"),
+                title = MyBundle.message("notification.failedConnect", agent.displayName),
+                content = t.message ?: MyBundle.message("notification.unknownError")
+            )
+        }
+    )
     private val planEntriesPanel: PlanEntriesPanel = PlanEntriesPanel().apply {
         isVisible = false
     }
@@ -110,7 +119,6 @@ class AcpToolWindowPanel(
     private var sessionsPopup: JBPopup? = null
 
     init {
-        logger.info("AcpToolWindowPanel init")
         Disposer.register(disposable, userInputPanel)
         userInputPanel.onSubmit = { prompt ->
             uiScope.launch {
@@ -127,8 +135,7 @@ class AcpToolWindowPanel(
                     if (sessionService.isConnected.value && sessionService.isLoading.value) {
                         sessionService.cancel()
                     } else if (sessionService.isConnected.value) {
-                        connectedAgentId = null
-                        sessionService.disconnect()
+                        disconnectCurrentSession()
                         Notifications.Bus.notify(
                             Notification(
                                 MyBundle.message("notification.acpConnection"),
@@ -163,20 +170,7 @@ class AcpToolWindowPanel(
         userInputPanel.onAgentChanged = { agentItem ->
             if (agentItem != null) {
                 logger.info("Selected ACP agent: id=${agentItem.id}, displayName=${agentItem.displayName}")
-                if (!sessionService.isLoading.value) {
-                    uiScope.launch {
-                        try {
-                            switchOrConnectSelectedAgent(agentItem.agentDefinition)
-                        } catch (t: Throwable) {
-                            logger.warn("Failed to switch ACP session to ${agentItem.displayName}", t)
-                            notifyError(
-                                groupTitle = MyBundle.message("notification.connectionError"),
-                                title = MyBundle.message("notification.failedConnect", agentItem.displayName),
-                                content = t.message ?: MyBundle.message("notification.unknownError")
-                            )
-                        }
-                    }
-                }
+                requestAgentSwitch(agentItem.agentDefinition)
             }
             conversationChatViewToolbar.update()
         }
@@ -209,13 +203,14 @@ class AcpToolWindowPanel(
             }
         }
         uiScope.launch {
-            sessionService.isLoading.collectLatest { loading ->
+            combine(
+                sessionService.isLoading,
+                sessionService.isConnected,
+                agentSwitchController.isSwitching
+            ) { loading, connected, switching ->
+                currentComposerState(loading = loading, connected = connected, switching = switching)
+            }.collectLatest { state ->
                 runOnEdt {
-                    val state = when {
-                        loading && !sessionService.isConnected.value -> ToolWindowComposerState.CONNECTING
-                        loading -> ToolWindowComposerState.SENDING
-                        else -> ToolWindowComposerState.IDLE
-                    }
                     userInputPanel.setBusy(state)
                 }
             }
@@ -227,6 +222,8 @@ class AcpToolWindowPanel(
                     if (!connected) {
                         connectedAgentId = null
                         userInputPanel.clearSessionSelectors()
+                    } else {
+                        connectedAgentId = sessionService.currentAgentId()
                     }
                 }
             }
@@ -279,7 +276,11 @@ class AcpToolWindowPanel(
             }
         }
         uiScope.launch {
-            sessionService.isLoading.collectLatest {
+            combine(
+                sessionService.isLoading,
+                sessionService.isConnected,
+                agentSwitchController.isSwitching
+            ) { _, _, _ -> currentComposerState() }.collectLatest {
                 runOnEdt {
                     conversationChatViewToolbar.update()
                 }
@@ -365,17 +366,11 @@ class AcpToolWindowPanel(
         }
     }
 
-    private suspend fun switchOrConnectSelectedAgent(agent: AgentRegistry.InstalledAgent) {
-        if (sessionService.isConnected.value && connectedAgentId == agent.id) {
+    private fun requestAgentSwitch(agent: AgentRegistry.InstalledAgent) {
+        if (sessionService.isLoading.value) {
             return
         }
-
-        if (sessionService.isConnected.value) {
-            connectedAgentId = null
-            sessionService.disconnect()
-        }
-
-        connectSelectedAgent(agent)
+        agentSwitchController.requestSwitch(agent)
     }
 
     private suspend fun connectSelectedAgent(agent: AgentRegistry.InstalledAgent) {
@@ -412,8 +407,7 @@ class AcpToolWindowPanel(
         val cwd = project.basePath ?: System.getProperty("user.dir")
         uiScope.launch {
             try {
-                connectedAgentId = null
-                sessionService.disconnect()
+                logger.info("Creating a new ACP session for agent ${agent.displayName}")
                 sessionService.createSession(agent, cwd)
                 connectedAgentId = agent.id
                 Notifications.Bus.notify(
@@ -515,8 +509,6 @@ class AcpToolWindowPanel(
         logger.info("[Sessions] Resuming session $sessionId for agent ${agent.displayName}")
         uiScope.launch {
             try {
-                connectedAgentId = null
-                sessionService.disconnect()
                 sessionService.resumeSession(sessionId, agent, cwd)
                 connectedAgentId = agent.id
                 Notifications.Bus.notify(
@@ -565,6 +557,28 @@ class AcpToolWindowPanel(
 
     private fun runOnEdt(action: () -> Unit) {
         ApplicationManager.getApplication().invokeLater(action)
+    }
+
+    private fun isComposerBusy(): Boolean {
+        return sessionService.isLoading.value || agentSwitchController.isSwitching.value
+    }
+
+    private fun currentComposerState(
+        loading: Boolean = sessionService.isLoading.value,
+        connected: Boolean = sessionService.isConnected.value,
+        switching: Boolean = agentSwitchController.isSwitching.value
+    ): ToolWindowComposerState {
+        return when {
+            switching -> ToolWindowComposerState.CONNECTING
+            loading && !connected -> ToolWindowComposerState.CONNECTING
+            loading -> ToolWindowComposerState.SENDING
+            else -> ToolWindowComposerState.IDLE
+        }
+    }
+
+    private suspend fun disconnectCurrentSession() {
+        connectedAgentId = null
+        sessionService.disconnect()
     }
 
     private fun buildAgentItems(): List<AgentComboBoxAction.AgentItem> {

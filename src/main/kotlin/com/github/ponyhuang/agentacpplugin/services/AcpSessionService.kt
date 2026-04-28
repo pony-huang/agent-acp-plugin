@@ -24,6 +24,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonElement
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -54,6 +56,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     private val permissionRequestService = project.service<AcpPermissionRequestService>()
     private val persistenceService = project.service<AcpSessionPersistenceService>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val lifecycleMutex = Mutex()
 
     // Current agent definition (from our config, not from ACP agent)
     private var currentAgentDefinition: AgentRegistry.InstalledAgent? = null
@@ -243,76 +246,131 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     @OptIn(UnstableApi::class)
     suspend fun createSession(agentDefinition: AgentRegistry.InstalledAgent, cwd: String) {
-        _isLoading.value = true
-        _isConnecting.value = true
-        try {
-            shutdownActiveClient()
-            resetDerivedSessionState()
-            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-            coroutineScope = scope
-            currentAgentDefinition = agentDefinition
-
-            val configService = project.service<AcpAgentsConfigService>()
-            val sessionUpdateHandler: suspend (SessionUpdate) -> Unit = { update ->
-                handleSessionUpdate(update)
-            }
-            val permissionRequestHandler: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse =
-                { toolCall, permissions, meta ->
-                    if (permissionRequestService.hasActiveSubscribers()) {
-                        permissionRequestService.requestPermissions(toolCall, permissions, meta)
-                    } else {
-                        autoApprovePermissions(permissions, meta)
-                    }
+        lifecycleMutex.withLock {
+            _isLoading.value = true
+            _isConnecting.value = true
+            try {
+                val reusingClient = shouldReuseCurrentClient(agentDefinition)
+                val activeClient = if (reusingClient) {
+                    resetSessionData(
+                        keepConnectedFlag = true,
+                        clearAgentBinding = false
+                    )
+                    requireNotNull(client)
+                } else {
+                    shutdownActiveClient()
+                    resetSessionData(keepConnectedFlag = false)
+                    connectNewClient(agentDefinition)
                 }
-            client = configService.createClientBridge(
-                agentDefinition.displayName,
-                scope,
-                sessionUpdateHandler,
-                permissionRequestHandler
-            ) ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' is not configured.")
+                val info = requireNotNull(_currentAgent.value) {
+                    "Agent '${agentDefinition.displayName}' did not complete ACP initialization."
+                }
 
-            val info = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
-                client!!.connect()
-            } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
+                _currentAgent.value = info
 
-            _currentAgent.value = info
+                val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
+                    activeClient.newSession()
+                } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not create a session.")
 
-            val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
-                client!!.newSession()
-            } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not create a session.")
+                _currentSession = session
+                _availableModes.value = session.availableModes
+                _availableModels.value = session.availableModels
+                _currentModeId.value = session.currentMode.value.toString()
+                _currentModelId.value = session.currentModel.value.toString()
+                _isConnected.value = true
 
-            _currentSession = session
-            _availableModes.value = session.availableModes
-            _availableModels.value = session.availableModels
-            _currentModeId.value = session.currentMode.value.toString()
-            _currentModelId.value = session.currentModel.value.toString()
-            _isConnected.value = true
+                val savedSession = AcpSessionPersistenceService.SavedSession(
+                    id = UUID.randomUUID().toString(),
+                    agentName = agentDefinition.displayName,
+                    sessionId = session.sessionId.value,
+                    title = MyBundle.message("session.newSessionTitle"),
+                    lastUpdated = System.currentTimeMillis(),
+                    cwd = cwd,
+                    supportsLoadSession = info.capabilities.sessionCapabilities.resume != null
+                )
+                persistenceService.addSession(savedSession)
+            } catch (t: TimeoutCancellationException) {
+                handleSessionStartupTimeout(
+                    operation = "creating",
+                    agentDisplayName = agentDefinition.displayName,
+                    reconnecting = false,
+                    cause = t
+                )
+            } catch (t: Throwable) {
+                logger.warn("Failed to create ACP session for agent ${agentDefinition.displayName}", t)
+                disconnectLocked()
+                throw t
+            } finally {
+                _isLoading.value = false
+                _isConnecting.value = false
+            }
+        }
+    }
 
-            // Persist the new session
-            val savedSession = AcpSessionPersistenceService.SavedSession(
-                id = UUID.randomUUID().toString(),
-                agentName = agentDefinition.displayName,
-                sessionId = session.sessionId.value,
-                title = MyBundle.message("session.newSessionTitle"),
-                lastUpdated = System.currentTimeMillis(),
-                cwd = cwd,
-                supportsLoadSession = info.capabilities.sessionCapabilities.resume != null
-            )
-            persistenceService.addSession(savedSession)
-        } catch (t: TimeoutCancellationException) {
-            handleSessionStartupTimeout(
-                operation = "creating",
-                agentDisplayName = agentDefinition.displayName,
-                reconnecting = false,
-                cause = t
-            )
-        } catch (t: Throwable) {
-            logger.warn("Failed to create ACP session for agent ${agentDefinition.displayName}", t)
-            disconnect()
-            throw t
-        } finally {
-            _isLoading.value = false
-            _isConnecting.value = false
+    /**
+     * Replace the current ACP session with a newly created session for another agent without
+     * emitting an intermediate disconnected state to the UI.
+     */
+    @OptIn(UnstableApi::class)
+    suspend fun replaceSession(agentDefinition: AgentRegistry.InstalledAgent, cwd: String) {
+        lifecycleMutex.withLock {
+            _isLoading.value = true
+            _isConnecting.value = true
+            try {
+                val reusingClient = shouldReuseCurrentClient(agentDefinition)
+                val activeClient = if (reusingClient) {
+                    resetSessionData(
+                        keepConnectedFlag = true,
+                        clearAgentBinding = false
+                    )
+                    requireNotNull(client)
+                } else {
+                    shutdownActiveClient()
+                    resetSessionData(keepConnectedFlag = true)
+                    connectNewClient(agentDefinition)
+                }
+                val info = requireNotNull(_currentAgent.value) {
+                    "Agent '${agentDefinition.displayName}' did not complete ACP initialization."
+                }
+
+                _currentAgent.value = info
+
+                val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
+                    activeClient.newSession()
+                } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not create a session.")
+
+                _currentSession = session
+                _availableModes.value = session.availableModes
+                _availableModels.value = session.availableModels
+                _currentModeId.value = session.currentMode.value.toString()
+                _currentModelId.value = session.currentModel.value.toString()
+                _isConnected.value = true
+
+                val savedSession = AcpSessionPersistenceService.SavedSession(
+                    id = UUID.randomUUID().toString(),
+                    agentName = agentDefinition.displayName,
+                    sessionId = session.sessionId.value,
+                    title = MyBundle.message("session.newSessionTitle"),
+                    lastUpdated = System.currentTimeMillis(),
+                    cwd = cwd,
+                    supportsLoadSession = info.capabilities.sessionCapabilities.resume != null
+                )
+                persistenceService.addSession(savedSession)
+            } catch (t: TimeoutCancellationException) {
+                handleSessionStartupTimeout(
+                    operation = "replacing",
+                    agentDisplayName = agentDefinition.displayName,
+                    reconnecting = true,
+                    cause = t
+                )
+            } catch (t: Throwable) {
+                logger.warn("Failed to replace ACP session with agent ${agentDefinition.displayName}", t)
+                disconnectLocked()
+                throw t
+            } finally {
+                _isLoading.value = false
+                _isConnecting.value = false
+            }
         }
     }
 
@@ -321,73 +379,54 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     @OptIn(UnstableApi::class)
     suspend fun resumeSession(sessionId: String, agentDefinition: AgentRegistry.InstalledAgent, cwd: String) {
-        _isLoading.value = true
-        _isConnecting.value = true
-        try {
-            shutdownActiveClient()
-            resetDerivedSessionState()
-            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-            coroutineScope = scope
-            currentAgentDefinition = agentDefinition
-
-            val configService = project.service<AcpAgentsConfigService>()
-            val sessionUpdateHandler: suspend (SessionUpdate) -> Unit = { update ->
-                handleSessionUpdate(update)
-            }
-            val permissionRequestHandler: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse =
-                { toolCall, permissions, meta ->
-                    if (permissionRequestService.hasActiveSubscribers()) {
-                        permissionRequestService.requestPermissions(toolCall, permissions, meta)
-                    } else {
-                        autoApprovePermissions(permissions, meta)
-                    }
+        lifecycleMutex.withLock {
+            _isLoading.value = true
+            _isConnecting.value = true
+            try {
+                val activeClient = ensureConnectedClient(agentDefinition)
+                resetSessionData(
+                    keepConnectedFlag = true,
+                    clearAgentBinding = false
+                )
+                val info = requireNotNull(_currentAgent.value) {
+                    "Agent '${agentDefinition.displayName}' did not complete ACP initialization."
                 }
-            client = configService.createClientBridge(
-                agentDefinition.displayName,
-                scope,
-                sessionUpdateHandler,
-                permissionRequestHandler
-            ) ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' is not configured.")
 
-            val info = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
-                client!!.connect()
-            } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
+                if (info.capabilities.sessionCapabilities.resume == null) {
+                    throw IllegalStateException("Agent '${agentDefinition.displayName}' does not support session resume.")
+                }
 
-            if (info.capabilities.sessionCapabilities.resume == null) {
-                throw IllegalStateException("Agent '${agentDefinition.displayName}' does not support session resume.")
+                _currentAgent.value = info
+
+                val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
+                    activeClient.resumeSession(SessionId(sessionId))
+                } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not resume session '$sessionId'.")
+
+                _currentSession = session
+                _availableModes.value = session.availableModes
+                _availableModels.value = session.availableModels
+                _currentModeId.value = session.currentMode.value.toString()
+                _currentModelId.value = session.currentModel.value.toString()
+                _isConnected.value = true
+
+                persistenceService.updateSession(sessionId, agentDefinition.displayName) { saved ->
+                    saved.copy(lastUpdated = System.currentTimeMillis())
+                }
+            } catch (t: TimeoutCancellationException) {
+                handleSessionStartupTimeout(
+                    operation = "resuming session $sessionId for",
+                    agentDisplayName = agentDefinition.displayName,
+                    reconnecting = true,
+                    cause = t
+                )
+            } catch (t: Throwable) {
+                logger.warn("Failed to resume ACP session $sessionId for agent ${agentDefinition.displayName}", t)
+                disconnectLocked()
+                throw t
+            } finally {
+                _isLoading.value = false
+                _isConnecting.value = false
             }
-
-            _currentAgent.value = info
-
-            val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
-                client!!.resumeSession(SessionId(sessionId))
-            } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not resume session '$sessionId'.")
-
-            _currentSession = session
-            _availableModes.value = session.availableModes
-            _availableModels.value = session.availableModels
-            _currentModeId.value = session.currentMode.value.toString()
-            _currentModelId.value = session.currentModel.value.toString()
-            _isConnected.value = true
-
-            // Update session lastUpdated in persistence
-            persistenceService.updateSession(sessionId, agentDefinition.displayName) { saved ->
-                saved.copy(lastUpdated = System.currentTimeMillis())
-            }
-        } catch (t: TimeoutCancellationException) {
-            handleSessionStartupTimeout(
-                operation = "resuming session $sessionId for",
-                agentDisplayName = agentDefinition.displayName,
-                reconnecting = true,
-                cause = t
-            )
-        } catch (t: Throwable) {
-            logger.warn("Failed to resume ACP session $sessionId for agent ${agentDefinition.displayName}", t)
-            disconnect()
-            throw t
-        } finally {
-            _isLoading.value = false
-            _isConnecting.value = false
         }
     }
 
@@ -396,46 +435,44 @@ class AcpSessionService(private val project: Project) : Disposable {
         agentDefinition: AgentRegistry.InstalledAgent,
         cwd: String
     ): List<SessionListItem> = withContext(Dispatchers.IO) {
-        logger.info("[Sessions] listSessions entered: agent=${agentDefinition.displayName}, cwd=$cwd")
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val configService = project.service<AcpAgentsConfigService>()
-        logger.info("[Sessions] Creating temporary client bridge for ${agentDefinition.displayName}")
-        val temporaryClient = configService.createClientBridge(
-            agentDefinition.displayName,
-            scope,
-            sessionUpdateSink = {},
-            permissionRequestSink = { _, permissions, meta ->
-                autoApprovePermissions(permissions, meta)
-            }
-        ) ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' is not configured.")
-
-        try {
-            logger.info("[Sessions] Temporary client bridge created, connecting to ${agentDefinition.displayName}")
-            val info = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
-                temporaryClient.connect()
-            } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
-
-            logger.info("[Sessions] Agent connected, session list capability present=${info.capabilities.sessionCapabilities.list != null}")
-            if (info.capabilities.sessionCapabilities.list == null) {
-                throw IllegalStateException("Agent '${agentDefinition.displayName}' does not support session listing.")
-            }
-
-            val listedSessions = temporaryClient.listSessions(cwd).map { sessionInfo ->
-                SessionListItem(
-                    sessionId = sessionInfo.sessionId.value,
-                    title = sessionInfo.title,
-                    cwd = sessionInfo.cwd,
-                    updatedAtMillis = parseUpdatedAt(sessionInfo.updatedAt)
+        lifecycleMutex.withLock {
+            logger.info("[Sessions] listSessions entered: agent=${agentDefinition.displayName}, cwd=$cwd")
+            if (canReuseClientForSessionListing(agentDefinition)) {
+                logger.info("[Sessions] Reusing active client for ${agentDefinition.displayName}")
+                val activeInfo = requireNotNull(_currentAgent.value) {
+                    "Agent '${agentDefinition.displayName}' did not complete ACP initialization."
+                }
+                if (activeInfo.capabilities.sessionCapabilities.list == null) {
+                    throw IllegalStateException("Agent '${agentDefinition.displayName}' does not support session listing.")
+                }
+                return@withLock listSessionsFromClient(
+                    client = requireNotNull(client),
+                    cwd = cwd,
+                    agentDisplayName = agentDefinition.displayName
                 )
-            }.sortedWith(
-                compareByDescending<SessionListItem> { it.updatedAtMillis ?: Long.MIN_VALUE }
-                    .thenByDescending { it.title.orEmpty() }
-                    .thenByDescending { it.sessionId }
-            )
-            logger.info("[Sessions] Agent returned ${listedSessions.size} sessions for cwd=$cwd")
-            listedSessions
-        } finally {
-            serviceScope.launch(Dispatchers.IO) {
+            }
+
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            logger.info("[Sessions] Creating temporary client bridge for ${agentDefinition.displayName}")
+            val temporaryClient = createClientBridge(agentDefinition, scope)
+
+            try {
+                logger.info("[Sessions] Temporary client bridge created, connecting to ${agentDefinition.displayName}")
+                val info = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
+                    temporaryClient.connect()
+                } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
+
+                logger.info("[Sessions] Agent connected, session list capability present=${info.capabilities.sessionCapabilities.list != null}")
+                if (info.capabilities.sessionCapabilities.list == null) {
+                    throw IllegalStateException("Agent '${agentDefinition.displayName}' does not support session listing.")
+                }
+
+                listSessionsFromClient(
+                    client = temporaryClient,
+                    cwd = cwd,
+                    agentDisplayName = agentDefinition.displayName
+                )
+            } finally {
                 logger.info("[Sessions] Closing temporary client bridge for ${agentDefinition.displayName}")
                 try {
                     temporaryClient.close()
@@ -448,6 +485,28 @@ class AcpSessionService(private val project: Project) : Disposable {
         }
     }
 
+    @OptIn(UnstableApi::class)
+    private suspend fun listSessionsFromClient(
+        client: AcpAgentClient,
+        cwd: String,
+        agentDisplayName: String
+    ): List<SessionListItem> {
+        val listedSessions = client.listSessions(cwd).map { sessionInfo ->
+            SessionListItem(
+                sessionId = sessionInfo.sessionId.value,
+                title = sessionInfo.title,
+                cwd = sessionInfo.cwd,
+                updatedAtMillis = parseUpdatedAt(sessionInfo.updatedAt)
+            )
+        }.sortedWith(
+            compareByDescending<SessionListItem> { it.updatedAtMillis ?: Long.MIN_VALUE }
+                .thenByDescending { it.title.orEmpty() }
+                .thenByDescending { it.sessionId }
+        )
+        logger.info("[Sessions] Agent returned ${listedSessions.size} sessions for cwd=$cwd ($agentDisplayName)")
+        return listedSessions
+    }
+
     internal fun buildSessionConnectTimeoutException(
         agentDisplayName: String,
         reconnecting: Boolean
@@ -458,7 +517,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         )
     }
 
-    private fun handleSessionStartupTimeout(
+    private suspend fun handleSessionStartupTimeout(
         operation: String,
         agentDisplayName: String,
         reconnecting: Boolean,
@@ -467,7 +526,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         logger.warn(
             "Timed out while $operation ACP session for agent $agentDisplayName after $SESSION_CONNECT_TIMEOUT_MS ms"
         )
-        disconnect()
+        disconnectLocked()
         throw buildSessionConnectTimeoutException(agentDisplayName, reconnecting).apply {
             initCause(cause)
         }
@@ -1051,20 +1110,18 @@ class AcpSessionService(private val project: Project) : Disposable {
     /**
      * Disconnect from the current session.
      */
-    fun disconnect() {
-        shutdownActiveClient()
-        _isConnected.value = false
-        _currentAgent.value = null
-        currentAgentDefinition = null
-        _messages.value = emptyList()
-        _activeToolCalls.value = emptyMap()
-        _availableCommands.value = emptyList()
-        _availableModes.value = emptyList()
-        _currentModeId.value = ""
-        _availableModels.value = emptyList()
-        _currentModelId.value = ""
-        resetDerivedSessionState()
+    suspend fun disconnect() {
+        lifecycleMutex.withLock {
+            disconnectLocked()
+        }
     }
+
+    private fun disconnectLocked() {
+        shutdownActiveClient()
+        resetSessionData(keepConnectedFlag = false)
+    }
+
+    fun currentAgentId(): String? = currentAgentDefinition?.id
 
     /**
      * Delete a saved session from persistence.
@@ -1149,7 +1206,7 @@ class AcpSessionService(private val project: Project) : Disposable {
 
     override fun dispose() {
         serviceScope.cancel()
-        disconnect()
+        disconnectLocked()
     }
 
     private fun shutdownActiveClient() {
@@ -1158,6 +1215,82 @@ class AcpSessionService(private val project: Project) : Disposable {
         coroutineScope?.cancel()
         coroutineScope = null
         _currentSession = null
+    }
+
+    private suspend fun ensureConnectedClient(agentDefinition: AgentRegistry.InstalledAgent): AcpAgentClient {
+        if (shouldReuseCurrentClient(agentDefinition)) {
+            currentAgentDefinition = agentDefinition
+            return requireNotNull(client)
+        }
+
+        shutdownActiveClient()
+        return connectNewClient(agentDefinition)
+    }
+
+    private suspend fun connectNewClient(agentDefinition: AgentRegistry.InstalledAgent): AcpAgentClient {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val newClient = createClientBridge(agentDefinition, scope)
+        val info = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
+            newClient.connect()
+        } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
+
+        coroutineScope = scope
+        client = newClient
+        currentAgentDefinition = agentDefinition
+        _currentAgent.value = info
+        return newClient
+    }
+
+    private fun createClientBridge(
+        agentDefinition: AgentRegistry.InstalledAgent,
+        scope: CoroutineScope
+    ): AcpAgentClient {
+        val configService = project.service<AcpAgentsConfigService>()
+        val sessionUpdateHandler: suspend (SessionUpdate) -> Unit = { update ->
+            handleSessionUpdate(update)
+        }
+        val permissionRequestHandler: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse =
+            { toolCall, permissions, meta ->
+                if (permissionRequestService.hasActiveSubscribers()) {
+                    permissionRequestService.requestPermissions(toolCall, permissions, meta)
+                } else {
+                    autoApprovePermissions(permissions, meta)
+                }
+            }
+        return configService.createClientBridge(
+            agentDefinition.displayName,
+            scope,
+            sessionUpdateHandler,
+            permissionRequestHandler
+        ) ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' is not configured.")
+    }
+
+    private fun shouldReuseCurrentClient(agentDefinition: AgentRegistry.InstalledAgent): Boolean {
+        val currentAgentId = currentAgentDefinition?.id
+        return client != null && currentAgentId == agentDefinition.id
+    }
+
+    private fun canReuseClientForSessionListing(agentDefinition: AgentRegistry.InstalledAgent): Boolean {
+        return shouldReuseCurrentClient(agentDefinition) && !_isLoading.value && !_isConnecting.value
+    }
+
+    private fun resetSessionData(keepConnectedFlag: Boolean, clearAgentBinding: Boolean = true) {
+        if (!keepConnectedFlag) {
+            _isConnected.value = false
+        }
+        _currentSession = null
+        if (clearAgentBinding) {
+            _currentAgent.value = null
+            currentAgentDefinition = null
+        }
+        _messages.value = emptyList()
+        _activeToolCalls.value = emptyMap()
+        _availableCommands.value = emptyList()
+        _availableModes.value = emptyList()
+        _currentModeId.value = ""
+        _availableModels.value = emptyList()
+        _currentModelId.value = ""
+        resetDerivedSessionState()
     }
 
     private fun autoApprovePermissions(

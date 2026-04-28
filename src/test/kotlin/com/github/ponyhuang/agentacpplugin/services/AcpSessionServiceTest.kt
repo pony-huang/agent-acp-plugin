@@ -4,6 +4,7 @@ import com.agentclientprotocol.model.ContentBlock
 import com.agentclientprotocol.model.Cost
 import com.agentclientprotocol.model.EmbeddedResourceResource
 import com.agentclientprotocol.model.ModelId
+import com.agentclientprotocol.model.Implementation
 import com.agentclientprotocol.model.PlanEntry
 import com.agentclientprotocol.model.PlanEntryPriority
 import com.agentclientprotocol.model.PlanEntryStatus
@@ -11,6 +12,7 @@ import com.agentclientprotocol.model.PermissionOption
 import com.agentclientprotocol.model.PermissionOptionId
 import com.agentclientprotocol.model.PermissionOptionKind
 import com.agentclientprotocol.model.PromptResponse
+import com.agentclientprotocol.model.RequestPermissionResponse
 import com.agentclientprotocol.model.RequestPermissionOutcome
 import com.agentclientprotocol.model.SessionUpdate
 import com.agentclientprotocol.model.StopReason
@@ -28,6 +30,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import java.lang.reflect.Proxy
 
 class AcpSessionServiceTest : BasePlatformTestCase() {
@@ -270,6 +274,64 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertNull(exception.cause)
     }
 
+    fun testShouldReuseCurrentClientReturnsTrueForSameAgentWhenClientExists() {
+        val agent = testAgent(id = "agent-a", displayName = "Agent A")
+        setClient(dummyClient())
+        setCurrentAgentDefinition(agent)
+
+        assertTrue(shouldReuseCurrentClient(agent))
+    }
+
+    fun testShouldReuseCurrentClientReturnsFalseForDifferentAgent() {
+        setClient(dummyClient())
+        setCurrentAgentDefinition(testAgent(id = "agent-a", displayName = "Agent A"))
+
+        assertFalse(shouldReuseCurrentClient(testAgent(id = "agent-b", displayName = "Agent B")))
+    }
+
+    fun testResetSessionDataPreservingAgentBindingKeepsCurrentAgent() {
+        val agent = testAgent(id = "agent-a", displayName = "Agent A")
+        setCurrentAgentDefinition(agent)
+        setCurrentAgentInfo(agent.displayName)
+        service.addMessage("assistant", "existing")
+
+        resetSessionData(keepConnectedFlag = true, clearAgentBinding = false)
+
+        assertEquals(agent.displayName, service.currentAgent.value?.implementation?.name)
+        assertTrue(service.messages.value.isEmpty())
+    }
+
+    fun testResetSessionDataClearsCurrentSessionEvenWhenPreservingAgentBinding() {
+        val agent = testAgent(id = "agent-a", displayName = "Agent A")
+        setCurrentAgentDefinition(agent)
+        setCurrentAgentInfo(agent.displayName)
+        setCurrentSession(dummySession())
+
+        resetSessionData(keepConnectedFlag = true, clearAgentBinding = false)
+
+        assertNull(currentSession())
+    }
+
+    fun testCanReuseClientForSessionListingReturnsTrueWhenSameAgentAndIdle() {
+        val agent = testAgent(id = "agent-a", displayName = "Agent A")
+        setClient(dummyClient())
+        setCurrentAgentDefinition(agent)
+        setLoading(false)
+        setConnecting(false)
+
+        assertTrue(canReuseClientForSessionListing(agent))
+    }
+
+    fun testCanReuseClientForSessionListingReturnsFalseWhenLoading() {
+        val agent = testAgent(id = "agent-a", displayName = "Agent A")
+        setClient(dummyClient())
+        setCurrentAgentDefinition(agent)
+        setLoading(true)
+        setConnecting(false)
+
+        assertFalse(canReuseClientForSessionListing(agent))
+    }
+
     fun testCancelImmediatelyLeavesRunningStateAndMarksPromptCancelled() = runBlocking {
         var cancelCalled = false
         setCurrentSession(
@@ -431,8 +493,47 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         field.set(service, session)
     }
 
+    private fun currentSession(): ClientSession? {
+        val field = AcpSessionService::class.java.getDeclaredField("_currentSession")
+        field.isAccessible = true
+        return field.get(service) as? ClientSession
+    }
+
+    private fun setClient(value: AcpAgentClient?) {
+        val field = AcpSessionService::class.java.getDeclaredField("client")
+        field.isAccessible = true
+        field.set(service, value)
+    }
+
+    private fun setCurrentAgentDefinition(agent: AgentRegistry.InstalledAgent?) {
+        val field = AcpSessionService::class.java.getDeclaredField("currentAgentDefinition")
+        field.isAccessible = true
+        field.set(service, agent)
+    }
+
+    private fun setCurrentAgentInfo(name: String) {
+        val field = AcpSessionService::class.java.getDeclaredField("_currentAgent")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val flow = field.get(service) as MutableStateFlow<com.agentclientprotocol.agent.AgentInfo?>
+        flow.value = com.agentclientprotocol.agent.AgentInfo(
+            implementation = Implementation(name = name, version = "1.0.0"),
+            capabilities = com.agentclientprotocol.model.AgentCapabilities(
+                loadSession = true
+            )
+        )
+    }
+
     private fun setLoading(value: Boolean) {
         val field = AcpSessionService::class.java.getDeclaredField("_isLoading")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val flow = field.get(service) as MutableStateFlow<Boolean>
+        flow.value = value
+    }
+
+    private fun setConnecting(value: Boolean) {
+        val field = AcpSessionService::class.java.getDeclaredField("_isConnecting")
         field.isAccessible = true
         @Suppress("UNCHECKED_CAST")
         val flow = field.get(service) as MutableStateFlow<Boolean>
@@ -470,4 +571,81 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         val requests = field.get(permissionRequestService) as java.util.concurrent.ConcurrentHashMap<*, *>
         return requests.keys.firstOrNull() as? String
     }
+
+    private fun shouldReuseCurrentClient(agent: AgentRegistry.InstalledAgent): Boolean {
+        val method = AcpSessionService::class.java.getDeclaredMethod(
+            "shouldReuseCurrentClient",
+            AgentRegistry.InstalledAgent::class.java
+        )
+        method.isAccessible = true
+        return method.invoke(service, agent) as Boolean
+    }
+
+    private fun resetSessionData(keepConnectedFlag: Boolean, clearAgentBinding: Boolean) {
+        val method = AcpSessionService::class.java.getDeclaredMethod(
+            "resetSessionData",
+            Boolean::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType
+        )
+        method.isAccessible = true
+        method.invoke(service, keepConnectedFlag, clearAgentBinding)
+    }
+
+    private fun canReuseClientForSessionListing(agent: AgentRegistry.InstalledAgent): Boolean {
+        val method = AcpSessionService::class.java.getDeclaredMethod(
+            "canReuseClientForSessionListing",
+            AgentRegistry.InstalledAgent::class.java
+        )
+        method.isAccessible = true
+        return method.invoke(service, agent) as Boolean
+    }
+
+    private fun dummyClient(): AcpAgentClient {
+        return AcpAgentClient(
+            coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            project = project,
+            cmd = listOf("dummy"),
+            envs = emptyList(),
+            sessionUpdateSink = {},
+            permissionRequestSink = { _, permissions, meta ->
+                RequestPermissionResponse(
+                    RequestPermissionOutcome.Selected(permissions.first().optionId),
+                    meta
+                )
+            }
+        )
+    }
+
+    private fun dummySession(): ClientSession {
+        return Proxy.newProxyInstance(
+            ClientSession::class.java.classLoader,
+            arrayOf(ClientSession::class.java)
+        ) { _, method, _ ->
+            when (method.name) {
+                "getCurrentMode" -> MutableStateFlow(SessionModeId("default"))
+                "getCurrentModel" -> MutableStateFlow(ModelId("gpt-5"))
+                "getAvailableModes",
+                "getAvailableModels" -> emptyList<Any>()
+                "getModesSupported",
+                "getModelsSupported",
+                "getConfigOptionsSupported" -> false
+                else -> null
+            }
+        } as ClientSession
+    }
+
+    private fun testAgent(id: String, displayName: String) = AgentRegistry.InstalledAgent(
+        registryAgentId = id,
+        id = id,
+        displayName = displayName,
+        description = "Description",
+        version = "1.0.0",
+        iconPath = null,
+        installMethod = InstallMethod.NPX,
+        sourceLabel = "Official",
+        command = "npx",
+        args = emptyList(),
+        env = emptyMap(),
+        isLegacy = false
+    )
 }
