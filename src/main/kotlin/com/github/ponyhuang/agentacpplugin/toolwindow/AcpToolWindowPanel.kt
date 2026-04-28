@@ -44,6 +44,7 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicReference
 
 @OptIn(UnstableApi::class)
 class AcpToolWindowPanel(
@@ -101,8 +102,7 @@ class AcpToolWindowPanel(
         scope = uiScope,
         isConnected = { sessionService.isConnected.value },
         currentConnectedAgentId = { connectedAgentId ?: sessionService.currentAgentId() },
-        disconnectCurrentAgent = { disconnectCurrentSession() },
-        connectAgent = { agent -> connectSelectedAgent(agent) },
+        connectAgent = { request -> connectSelectedAgent(request) },
         onSwitchFailed = { agent, t ->
             logger.warn("Failed to switch ACP session to ${agent.displayName}", t)
             notifyError(
@@ -117,6 +117,7 @@ class AcpToolWindowPanel(
     }
     private val composerContainer: JPanel = JPanel(BorderLayout())
     private var sessionsPopup: JBPopup? = null
+    private val lastComposerState = AtomicReference<ToolWindowComposerState?>(null)
 
     init {
         Disposer.register(disposable, userInputPanel)
@@ -169,7 +170,12 @@ class AcpToolWindowPanel(
         }
         userInputPanel.onAgentChanged = { agentItem ->
             if (agentItem != null) {
-                logger.info("Selected ACP agent: id=${agentItem.id}, displayName=${agentItem.displayName}")
+                logToolWindowState(
+                    event = "agentSelectionChanged",
+                    details = "selectedId=${agentItem.id}, selectedName=${agentItem.displayName}, " +
+                        "serviceLoading=${sessionService.isLoading.value}, serviceConnected=${sessionService.isConnected.value}, " +
+                        "connectedAgentId=${connectedAgentId ?: "<none>"}"
+                )
                 requestAgentSwitch(agentItem.agentDefinition)
             }
             conversationChatViewToolbar.update()
@@ -211,6 +217,13 @@ class AcpToolWindowPanel(
                 currentComposerState(loading = loading, connected = connected, switching = switching)
             }.collectLatest { state ->
                 runOnEdt {
+                    logComposerStateChange(
+                        state = state,
+                        reason = "combinedFlow",
+                        loading = sessionService.isLoading.value,
+                        connected = sessionService.isConnected.value,
+                        switching = agentSwitchController.isSwitching.value
+                    )
                     userInputPanel.setBusy(state)
                 }
             }
@@ -218,6 +231,11 @@ class AcpToolWindowPanel(
         uiScope.launch {
             sessionService.isConnected.collectLatest { connected ->
                 runOnEdt {
+                    logToolWindowState(
+                        event = "sessionConnectedChanged",
+                        details = "connected=$connected, previousConnectedAgentId=${connectedAgentId ?: "<none>"}, " +
+                            "sessionCurrentAgentId=${sessionService.currentAgentId() ?: "<none>"}"
+                    )
                     userInputPanel.setSessionConnected(connected)
                     if (!connected) {
                         connectedAgentId = null
@@ -368,16 +386,47 @@ class AcpToolWindowPanel(
 
     private fun requestAgentSwitch(agent: AgentRegistry.InstalledAgent) {
         if (sessionService.isLoading.value) {
+            logToolWindowState(
+                event = "agentSwitchIgnored",
+                details = "target=${agent.id}, reason=sessionLoading, connected=${sessionService.isConnected.value}, " +
+                    "switching=${agentSwitchController.isSwitching.value}, connectedAgentId=${connectedAgentId ?: "<none>"}"
+            )
             return
         }
-        agentSwitchController.requestSwitch(agent)
+        val traceId = agentSwitchController.requestSwitch(agent)
+        logToolWindowState(
+            event = "agentSwitchRequested",
+            traceId = traceId,
+            details = "target=${agent.id}, connected=${sessionService.isConnected.value}, " +
+                "connectedAgentId=${connectedAgentId ?: "<none>"}"
+        )
     }
 
     private suspend fun connectSelectedAgent(agent: AgentRegistry.InstalledAgent) {
+        connectSelectedAgent(AgentSwitchController.SwitchRequest(traceId = "direct-connect", agent = agent))
+    }
+
+    private suspend fun connectSelectedAgent(request: AgentSwitchController.SwitchRequest) {
+        val agent = request.agent
         val cwd = project.basePath ?: System.getProperty("user.dir")
-        logger.info("Initializing ACP session for selected agent: id=${agent.id}, displayName=${agent.displayName}, cwd=$cwd")
-        sessionService.createSession(agent, cwd)
+        logToolWindowState(
+            event = "connectSelectedAgentStart",
+            traceId = request.traceId,
+            details = "agentId=${agent.id}, displayName=${agent.displayName}, cwd=$cwd, " +
+                "serviceConnected=${sessionService.isConnected.value}, serviceLoading=${sessionService.isLoading.value}"
+        )
+        if (sessionService.isConnected.value) {
+            sessionService.replaceSession(agent, cwd)
+        } else {
+            sessionService.createSession(agent, cwd)
+        }
         connectedAgentId = agent.id
+        logToolWindowState(
+            event = "connectSelectedAgentDone",
+            traceId = request.traceId,
+            details = "agentId=${agent.id}, connectedAgentId=${connectedAgentId ?: "<none>"}, " +
+                "serviceConnected=${sessionService.isConnected.value}, serviceLoading=${sessionService.isLoading.value}"
+        )
         Notifications.Bus.notify(
             Notification(
                 MyBundle.message("notification.acpConnection"),
@@ -577,8 +626,51 @@ class AcpToolWindowPanel(
     }
 
     private suspend fun disconnectCurrentSession() {
+        disconnectCurrentSession("manual-disconnect")
+    }
+
+    private suspend fun disconnectCurrentSession(traceId: String) {
+        logToolWindowState(
+            event = "disconnectCurrentSessionStart",
+            traceId = traceId,
+            details = "connectedAgentId=${connectedAgentId ?: "<none>"}, serviceCurrentAgentId=${sessionService.currentAgentId() ?: "<none>"}, " +
+                "serviceConnected=${sessionService.isConnected.value}, serviceLoading=${sessionService.isLoading.value}"
+        )
         connectedAgentId = null
         sessionService.disconnect()
+        logToolWindowState(
+            event = "disconnectCurrentSessionDone",
+            traceId = traceId,
+            details = "connectedAgentId=${connectedAgentId ?: "<none>"}, serviceCurrentAgentId=${sessionService.currentAgentId() ?: "<none>"}, " +
+                "serviceConnected=${sessionService.isConnected.value}, serviceLoading=${sessionService.isLoading.value}"
+        )
+    }
+
+    private fun logComposerStateChange(
+        state: ToolWindowComposerState,
+        reason: String,
+        loading: Boolean,
+        connected: Boolean,
+        switching: Boolean
+    ) {
+        val previous = lastComposerState.getAndSet(state)
+        if (previous == state) {
+            return
+        }
+        logToolWindowState(
+            event = "composerStateChanged",
+            details = "reason=$reason, previous=${previous ?: "<none>"}, current=$state, " +
+                "loading=$loading, connected=$connected, switching=$switching"
+        )
+    }
+
+    private fun logToolWindowState(
+        event: String,
+        traceId: String? = null,
+        details: String
+    ) {
+        val prefix = if (traceId != null) "[ToolWindowState][$traceId]" else "[ToolWindowState]"
+        logger.info("$prefix $event: $details")
     }
 
     private fun buildAgentItems(): List<AgentComboBoxAction.AgentItem> {

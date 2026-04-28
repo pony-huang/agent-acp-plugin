@@ -18,7 +18,7 @@ import org.junit.Test
 class AgentSwitchControllerTest {
 
     @Test
-    fun requestSwitchDisconnectsAndConnectsTargetAgentOnce() {
+    fun requestSwitchConnectsTargetAgentOnceWithoutForegroundDisconnect() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val operations = CopyOnWriteArrayList<String>()
@@ -29,12 +29,8 @@ class AgentSwitchControllerTest {
                 scope = scope,
                 isConnected = { isConnected },
                 currentConnectedAgentId = { connectedAgentId },
-                disconnectCurrentAgent = {
-                    operations += "disconnect"
-                    isConnected = false
-                    connectedAgentId = null
-                },
-                connectAgent = { agent ->
+                connectAgent = { request ->
+                    val agent = request.agent
                     operations += "connect:${agent.id}"
                     isConnected = true
                     connectedAgentId = agent.id
@@ -42,10 +38,14 @@ class AgentSwitchControllerTest {
                 }
             )
 
-            controller.requestSwitch(agent("agent-b", "Agent B"))
+            val traceId = controller.requestSwitch(agent("agent-b", "Agent B"))
 
             completed.get(2, TimeUnit.SECONDS)
-            assertEquals(listOf("disconnect", "connect:agent-b"), operations)
+            while (controller.isSwitching.value) {
+                Thread.sleep(10)
+            }
+            assertTrue(traceId?.startsWith("switch-") == true)
+            assertEquals(listOf("connect:agent-b"), operations)
             assertTrue(!controller.isSwitching.value)
         } finally {
             scope.cancel()
@@ -66,12 +66,8 @@ class AgentSwitchControllerTest {
                 scope = scope,
                 isConnected = { isConnected },
                 currentConnectedAgentId = { connectedAgentId },
-                disconnectCurrentAgent = {
-                    operations += "disconnect"
-                    isConnected = false
-                    connectedAgentId = null
-                },
-                connectAgent = { agent ->
+                connectAgent = { request ->
+                    val agent = request.agent
                     operations += "connect:${agent.id}"
                     connectCount += 1
                     if (connectCount == 1) {
@@ -94,7 +90,7 @@ class AgentSwitchControllerTest {
 
             completed.get(2, TimeUnit.SECONDS)
             assertEquals(
-                listOf("disconnect", "connect:agent-b", "disconnect", "connect:agent-c"),
+                listOf("connect:agent-b", "connect:agent-c"),
                 operations
             )
             assertEquals("agent-c", connectedAgentId)
@@ -113,13 +109,13 @@ class AgentSwitchControllerTest {
                 scope = scope,
                 isConnected = { true },
                 currentConnectedAgentId = { "agent-a" },
-                disconnectCurrentAgent = { operations += "disconnect" },
-                connectAgent = { agent -> operations += "connect:${agent.id}" }
+                connectAgent = { request -> operations += "connect:${request.agent.id}" }
             )
 
-            controller.requestSwitch(agent("agent-a", "Agent A"))
+            val traceId = controller.requestSwitch(agent("agent-a", "Agent A"))
 
             Thread.sleep(100)
+            assertEquals(null, traceId)
             assertTrue(operations.isEmpty())
         } finally {
             scope.cancel()

@@ -22,16 +22,26 @@ import kotlinx.io.buffered
 import kotlinx.serialization.json.JsonElement
 import java.nio.file.Paths
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createDirectories
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
+private const val PROTOCOL_CLOSE_TIMEOUT_MS = 5_000L
+private const val PROCESS_EXIT_TIMEOUT_MS = 2_000L
+
+data class ProcessTransportHandle(
+    val transport: Transport,
+    val process: Process,
+)
+
 fun createProcessStdioTransport(
     coroutineScope: CoroutineScope,
     envs: List<String>,
     command: List<String>
-): Transport {
+): ProcessTransportHandle {
     val processBuilder = ProcessBuilder(command)
         .redirectInput(ProcessBuilder.Redirect.PIPE)
         .redirectOutput(ProcessBuilder.Redirect.PIPE)
@@ -41,11 +51,14 @@ fun createProcessStdioTransport(
     applyEnvironmentVariables(processBuilder, envs)
 
     val process = processBuilder.start()
-    return StdioTransport(
-        parentScope = coroutineScope,
-        ioDispatcher = Dispatchers.IO,
-        input = process.inputStream.asSource().buffered(),
-        output = process.outputStream.asSink().buffered()
+    return ProcessTransportHandle(
+        transport = StdioTransport(
+            parentScope = coroutineScope,
+            ioDispatcher = Dispatchers.IO,
+            input = process.inputStream.asSource().buffered(),
+            output = process.outputStream.asSink().buffered()
+        ),
+        process = process
     )
 }
 
@@ -225,25 +238,35 @@ class AcpAgentClient(
 ) {
     private var client: Client? = null
     private var protocol: Protocol? = null
+    private var process: Process? = null
+    private val traceLabel = cmd.joinToString(" ")
     private val sessionCreationParameters: SessionCreationParameters
         get() = SessionCreationParameters(projectSessionRoot(project), emptyList())
 
     @OptIn(UnstableApi::class)
     suspend fun connect(): AgentInfo? {
-        val transport = createProcessStdioTransport(coroutineScope, envs, cmd)
-        val protocol = Protocol(coroutineScope, transport)
+        logger.info("[AgentClient] connect start: cmd=$traceLabel, envCount=${envs.size}")
+        val transportHandle = createProcessStdioTransport(coroutineScope, envs, cmd)
+        process = transportHandle.process
+        logger.info("[AgentClient] process started: cmd=$traceLabel, pid=${process?.pid() ?: -1}")
+        val protocol = Protocol(coroutineScope, transportHandle.transport)
         this.protocol = protocol
         client = Client(protocol)
         protocol.start()
-        return client?.initialize(
+        val info = client?.initialize(
             ClientInfo(capabilities = CLIENT_CAPABILITIES)
         )
+        logger.info("[AgentClient] connect end: cmd=$traceLabel, initialized=${info != null}, implementation=${info?.implementation?.name ?: "<none>"}")
+        return info
     }
 
     suspend fun newSession(): ClientSession? {
-        return client?.newSession(
+        logger.info("[AgentClient] newSession start: cmd=$traceLabel")
+        val session = client?.newSession(
             sessionCreationParameters
         ) { _, _ -> DefaultClientSessionOperations(sessionUpdateSink, permissionRequestSink) }
+        logger.info("[AgentClient] newSession end: cmd=$traceLabel, sessionId=${session?.sessionId?.value ?: "<none>"}")
+        return session
     }
 
     suspend fun loadSession(sessionId: SessionId): ClientSession? {
@@ -255,10 +278,13 @@ class AcpAgentClient(
 
     @OptIn(UnstableApi::class)
     suspend fun resumeSession(sessionId: SessionId): ClientSession? {
-        return client?.resumeSession(
+        logger.info("[AgentClient] resumeSession start: cmd=$traceLabel, sessionId=${sessionId.value}")
+        val session = client?.resumeSession(
             sessionId,
             sessionCreationParameters
         ) { _, _ -> DefaultClientSessionOperations(sessionUpdateSink, permissionRequestSink) }
+        logger.info("[AgentClient] resumeSession end: cmd=$traceLabel, resumedSessionId=${session?.sessionId?.value ?: "<none>"}")
+        return session
     }
 
     @OptIn(UnstableApi::class)
@@ -267,9 +293,83 @@ class AcpAgentClient(
     }
 
     fun close() {
-        protocol?.close()
+        val activeProcess = process
+        logger.info(
+            "[AgentClient] close start: cmd=$traceLabel, pid=${activeProcess?.pid() ?: -1}, " +
+                "alive=${activeProcess?.isAlive ?: false}"
+        )
+        closeProtocolWithTimeout()
+        terminateProcess(activeProcess)
         protocol = null
         client = null
+        process = null
+        logger.info("[AgentClient] close end: cmd=$traceLabel")
+    }
+
+    private fun closeProtocolWithTimeout() {
+        val activeProtocol = protocol ?: return
+        val completion = CountDownLatch(1)
+        var failure: Throwable? = null
+        val thread = Thread(
+            {
+                try {
+                    logger.info("[AgentClient] protocol.close start: cmd=$traceLabel")
+                    activeProtocol.close()
+                    logger.info("[AgentClient] protocol.close end: cmd=$traceLabel")
+                } catch (t: Throwable) {
+                    failure = t
+                } finally {
+                    completion.countDown()
+                }
+            },
+            "acp-protocol-close-${traceLabel.hashCode()}"
+        ).apply {
+            isDaemon = true
+        }
+        thread.start()
+        val completed = completion.await(PROTOCOL_CLOSE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        when {
+            completed && failure == null -> Unit
+            completed && failure != null -> logger.warn("[AgentClient] protocol.close failed: cmd=$traceLabel", failure)
+            else -> logger.warn("[AgentClient] protocol.close timed out after $PROTOCOL_CLOSE_TIMEOUT_MS ms: cmd=$traceLabel")
+        }
+    }
+
+    private fun terminateProcess(target: Process?) {
+        if (target == null) {
+            logger.info("[AgentClient] No process handle to terminate: cmd=$traceLabel")
+            return
+        }
+        logger.info(
+            "[AgentClient] process termination start: cmd=$traceLabel, pid=${target.pid()}, alive=${target.isAlive}"
+        )
+        if (!target.isAlive) {
+            logger.info("[AgentClient] process already exited: cmd=$traceLabel, exit=${safeExitValue(target)}")
+            return
+        }
+
+        target.destroy()
+        val exitedGracefully = target.waitFor(PROCESS_EXIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        logger.info(
+            "[AgentClient] process destroy result: cmd=$traceLabel, pid=${target.pid()}, " +
+                "exited=$exitedGracefully, alive=${target.isAlive}"
+        )
+        if (exitedGracefully) {
+            logger.info("[AgentClient] process exited gracefully: cmd=$traceLabel, exit=${safeExitValue(target)}")
+            return
+        }
+
+        logger.warn("[AgentClient] process did not exit after destroy, forcing: cmd=$traceLabel, pid=${target.pid()}")
+        target.destroyForcibly()
+        val exitedForced = target.waitFor(PROCESS_EXIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        logger.info(
+            "[AgentClient] process force-destroy result: cmd=$traceLabel, pid=${target.pid()}, " +
+                "exited=$exitedForced, alive=${target.isAlive}, exit=${safeExitValue(target)}"
+        )
+    }
+
+    private fun safeExitValue(target: Process): Int? {
+        return runCatching { target.exitValue() }.getOrNull()
     }
 
     private companion object {

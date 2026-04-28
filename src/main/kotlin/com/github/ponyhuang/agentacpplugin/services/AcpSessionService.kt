@@ -57,6 +57,7 @@ class AcpSessionService(private val project: Project) : Disposable {
     private val persistenceService = project.service<AcpSessionPersistenceService>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lifecycleMutex = Mutex()
+    private var activeClientToken: String? = null
 
     // Current agent definition (from our config, not from ACP agent)
     private var currentAgentDefinition: AgentRegistry.InstalledAgent? = null
@@ -127,6 +128,14 @@ class AcpSessionService(private val project: Project) : Disposable {
     private var client: AcpAgentClient? = null
     private var coroutineScope: CoroutineScope? = null
     private var _currentSession: ClientSession? = null
+
+    private data class ClientRuntime(
+        val token: String,
+        val client: AcpAgentClient,
+        val scope: CoroutineScope,
+        val agentDefinition: AgentRegistry.InstalledAgent,
+        val agentInfo: AgentInfo
+    )
 
     /**
      * Chat message model with optional metadata
@@ -247,20 +256,26 @@ class AcpSessionService(private val project: Project) : Disposable {
     @OptIn(UnstableApi::class)
     suspend fun createSession(agentDefinition: AgentRegistry.InstalledAgent, cwd: String) {
         lifecycleMutex.withLock {
-            _isLoading.value = true
-            _isConnecting.value = true
+            val traceId = "create:${agentDefinition.id}"
+            logger.info("[SessionLifecycle][$traceId] createSession start: cwd=$cwd, state=${sessionStateSnapshot()}")
+            setLoadingState(true, "createSession:start:$traceId")
+            setConnectingState(true, "createSession:start:$traceId")
             try {
                 val reusingClient = shouldReuseCurrentClient(agentDefinition)
+                logger.info("[SessionLifecycle][$traceId] createSession client reuse=$reusingClient")
                 val activeClient = if (reusingClient) {
                     resetSessionData(
                         keepConnectedFlag = true,
-                        clearAgentBinding = false
+                        clearAgentBinding = false,
+                        reason = "createSession:reuse:$traceId"
                     )
                     requireNotNull(client)
                 } else {
                     shutdownActiveClient()
-                    resetSessionData(keepConnectedFlag = false)
-                    connectNewClient(agentDefinition)
+                    resetSessionData(keepConnectedFlag = false, reason = "createSession:newClient:$traceId")
+                    connectNewClient(agentDefinition).also { runtime ->
+                        swapToNewClient(runtime, traceId, preserveConnectedState = false)
+                    }.client
                 }
                 val info = requireNotNull(_currentAgent.value) {
                     "Agent '${agentDefinition.displayName}' did not complete ACP initialization."
@@ -268,6 +283,7 @@ class AcpSessionService(private val project: Project) : Disposable {
 
                 _currentAgent.value = info
 
+                logger.info("[SessionLifecycle][$traceId] Requesting new session from agent")
                 val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
                     activeClient.newSession()
                 } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not create a session.")
@@ -277,7 +293,11 @@ class AcpSessionService(private val project: Project) : Disposable {
                 _availableModels.value = session.availableModels
                 _currentModeId.value = session.currentMode.value.toString()
                 _currentModelId.value = session.currentModel.value.toString()
-                _isConnected.value = true
+                setConnectedState(true, "createSession:sessionCreated:$traceId")
+                logger.info(
+                    "[SessionLifecycle][$traceId] createSession success: sessionId=${session.sessionId.value}, " +
+                        "modes=${session.availableModes.size}, models=${session.availableModels.size}, state=${sessionStateSnapshot()}"
+                )
 
                 val savedSession = AcpSessionPersistenceService.SavedSession(
                     id = UUID.randomUUID().toString(),
@@ -301,8 +321,9 @@ class AcpSessionService(private val project: Project) : Disposable {
                 disconnectLocked()
                 throw t
             } finally {
-                _isLoading.value = false
-                _isConnecting.value = false
+                setLoadingState(false, "createSession:finally:$traceId")
+                setConnectingState(false, "createSession:finally:$traceId")
+                logger.info("[SessionLifecycle][$traceId] createSession end: state=${sessionStateSnapshot()}")
             }
         }
     }
@@ -314,37 +335,54 @@ class AcpSessionService(private val project: Project) : Disposable {
     @OptIn(UnstableApi::class)
     suspend fun replaceSession(agentDefinition: AgentRegistry.InstalledAgent, cwd: String) {
         lifecycleMutex.withLock {
-            _isLoading.value = true
-            _isConnecting.value = true
+            val traceId = "replace:${agentDefinition.id}"
+            logger.info("[SessionLifecycle][$traceId] replaceSession start: cwd=$cwd, state=${sessionStateSnapshot()}")
+            setLoadingState(true, "replaceSession:start:$traceId")
+            setConnectingState(true, "replaceSession:start:$traceId")
+            val previousRuntime = currentClientRuntime()
+            val previousSession = _currentSession
+            val previousConnected = _isConnected.value
+            var stagedRuntime: ClientRuntime? = null
             try {
                 val reusingClient = shouldReuseCurrentClient(agentDefinition)
+                logger.info("[SessionLifecycle][$traceId] replaceSession client reuse=$reusingClient")
                 val activeClient = if (reusingClient) {
-                    resetSessionData(
-                        keepConnectedFlag = true,
-                        clearAgentBinding = false
-                    )
                     requireNotNull(client)
                 } else {
-                    shutdownActiveClient()
-                    resetSessionData(keepConnectedFlag = true)
-                    connectNewClient(agentDefinition)
+                    connectNewClient(agentDefinition).also { stagedRuntime = it }.client
                 }
-                val info = requireNotNull(_currentAgent.value) {
-                    "Agent '${agentDefinition.displayName}' did not complete ACP initialization."
+                val info = if (reusingClient) {
+                    requireNotNull(_currentAgent.value) {
+                        "Agent '${agentDefinition.displayName}' did not complete ACP initialization."
+                    }
+                } else {
+                    requireNotNull(stagedRuntime).agentInfo
                 }
 
-                _currentAgent.value = info
-
+                logger.info("[SessionLifecycle][$traceId] Requesting replacement session from agent")
                 val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
                     activeClient.newSession()
                 } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not create a session.")
 
+                if (stagedRuntime != null) {
+                    swapToNewClient(requireNotNull(stagedRuntime), traceId, preserveConnectedState = previousConnected)
+                }
+                clearSessionViewState(reason = "replaceSession:swap:$traceId")
                 _currentSession = session
                 _availableModes.value = session.availableModes
                 _availableModels.value = session.availableModels
                 _currentModeId.value = session.currentMode.value.toString()
                 _currentModelId.value = session.currentModel.value.toString()
-                _isConnected.value = true
+                currentAgentDefinition = agentDefinition
+                _currentAgent.value = info
+                setConnectedState(true, "replaceSession:sessionCreated:$traceId")
+                logger.info(
+                    "[SessionLifecycle][$traceId] replaceSession success: sessionId=${session.sessionId.value}, " +
+                        "modes=${session.availableModes.size}, models=${session.availableModels.size}, state=${sessionStateSnapshot()}"
+                )
+                if (previousRuntime != null && stagedRuntime != null && previousRuntime.token != stagedRuntime.token) {
+                    cleanupStaleClientAsync(previousRuntime, traceId)
+                }
 
                 val savedSession = AcpSessionPersistenceService.SavedSession(
                     id = UUID.randomUUID().toString(),
@@ -357,19 +395,20 @@ class AcpSessionService(private val project: Project) : Disposable {
                 )
                 persistenceService.addSession(savedSession)
             } catch (t: TimeoutCancellationException) {
-                handleSessionStartupTimeout(
-                    operation = "replacing",
-                    agentDisplayName = agentDefinition.displayName,
-                    reconnecting = true,
-                    cause = t
-                )
+                cleanupFailedStagedRuntime(stagedRuntime, traceId)
+                restoreReplaceFailureState(previousRuntime, previousSession, previousConnected, traceId)
+                throw buildSessionConnectTimeoutException(agentDefinition.displayName, reconnecting = true).apply {
+                    initCause(t)
+                }
             } catch (t: Throwable) {
                 logger.warn("Failed to replace ACP session with agent ${agentDefinition.displayName}", t)
-                disconnectLocked()
+                cleanupFailedStagedRuntime(stagedRuntime, traceId)
+                restoreReplaceFailureState(previousRuntime, previousSession, previousConnected, traceId)
                 throw t
             } finally {
-                _isLoading.value = false
-                _isConnecting.value = false
+                setLoadingState(false, "replaceSession:finally:$traceId")
+                setConnectingState(false, "replaceSession:finally:$traceId")
+                logger.info("[SessionLifecycle][$traceId] replaceSession end: state=${sessionStateSnapshot()}")
             }
         }
     }
@@ -380,13 +419,16 @@ class AcpSessionService(private val project: Project) : Disposable {
     @OptIn(UnstableApi::class)
     suspend fun resumeSession(sessionId: String, agentDefinition: AgentRegistry.InstalledAgent, cwd: String) {
         lifecycleMutex.withLock {
-            _isLoading.value = true
-            _isConnecting.value = true
+            val traceId = "resume:${agentDefinition.id}:$sessionId"
+            logger.info("[SessionLifecycle][$traceId] resumeSession start: cwd=$cwd, state=${sessionStateSnapshot()}")
+            setLoadingState(true, "resumeSession:start:$traceId")
+            setConnectingState(true, "resumeSession:start:$traceId")
             try {
                 val activeClient = ensureConnectedClient(agentDefinition)
                 resetSessionData(
                     keepConnectedFlag = true,
-                    clearAgentBinding = false
+                    clearAgentBinding = false,
+                    reason = "resumeSession:prepare:$traceId"
                 )
                 val info = requireNotNull(_currentAgent.value) {
                     "Agent '${agentDefinition.displayName}' did not complete ACP initialization."
@@ -398,6 +440,7 @@ class AcpSessionService(private val project: Project) : Disposable {
 
                 _currentAgent.value = info
 
+                logger.info("[SessionLifecycle][$traceId] Requesting resume from agent")
                 val session = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
                     activeClient.resumeSession(SessionId(sessionId))
                 } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not resume session '$sessionId'.")
@@ -407,7 +450,11 @@ class AcpSessionService(private val project: Project) : Disposable {
                 _availableModels.value = session.availableModels
                 _currentModeId.value = session.currentMode.value.toString()
                 _currentModelId.value = session.currentModel.value.toString()
-                _isConnected.value = true
+                setConnectedState(true, "resumeSession:sessionCreated:$traceId")
+                logger.info(
+                    "[SessionLifecycle][$traceId] resumeSession success: sessionId=${session.sessionId.value}, " +
+                        "modes=${session.availableModes.size}, models=${session.availableModels.size}, state=${sessionStateSnapshot()}"
+                )
 
                 persistenceService.updateSession(sessionId, agentDefinition.displayName) { saved ->
                     saved.copy(lastUpdated = System.currentTimeMillis())
@@ -424,8 +471,9 @@ class AcpSessionService(private val project: Project) : Disposable {
                 disconnectLocked()
                 throw t
             } finally {
-                _isLoading.value = false
-                _isConnecting.value = false
+                setLoadingState(false, "resumeSession:finally:$traceId")
+                setConnectingState(false, "resumeSession:finally:$traceId")
+                logger.info("[SessionLifecycle][$traceId] resumeSession end: state=${sessionStateSnapshot()}")
             }
         }
     }
@@ -545,7 +593,8 @@ class AcpSessionService(private val project: Project) : Disposable {
             return
         }
 
-        _isLoading.value = true
+        logger.info("[SessionLifecycle][prompt] sendPrompt start: chars=${text.length}, state=${sessionStateSnapshot()}")
+        setLoadingState(true, "sendPrompt:start")
         _lastStopReason.value = null
         addMessage(ROLE_USER, text)
         updateDerivedSessionTitleFromPrompt(text)
@@ -561,7 +610,8 @@ class AcpSessionService(private val project: Project) : Disposable {
                 }
             }
         } finally {
-            _isLoading.value = false
+            setLoadingState(false, "sendPrompt:finally")
+            logger.info("[SessionLifecycle][prompt] sendPrompt end: state=${sessionStateSnapshot()}")
         }
     }
 
@@ -574,13 +624,13 @@ class AcpSessionService(private val project: Project) : Disposable {
             return
         }
         val session = _currentSession ?: return
-        logger.info("[AcpSessionService] Cancelling current operation...")
+        logger.info("[SessionLifecycle][prompt] cancel start: state=${sessionStateSnapshot()}")
         session.cancel()
         markActiveToolCallsCancelled()
         _lastStopReason.value = StopReason.CANCELLED
         _sessionUpdatedAt.value = System.currentTimeMillis()
-        _isLoading.value = false
-        logger.info("[AcpSessionService] Cancel completed")
+        setLoadingState(false, "cancel:completed")
+        logger.info("[SessionLifecycle][prompt] cancel end: state=${sessionStateSnapshot()}")
     }
 
     /**
@@ -631,11 +681,27 @@ class AcpSessionService(private val project: Project) : Disposable {
         }
     }
 
+    private fun handleSessionUpdateFromClient(clientToken: String, update: SessionUpdate) {
+        if (!isCurrentClientToken(clientToken)) {
+            logger.info("[SessionLifecycle] Ignoring stale session update from token=$clientToken")
+            return
+        }
+        handleSessionUpdate(update)
+    }
+
     internal fun applySessionUpdate(update: SessionUpdate) {
         handleSessionUpdate(update)
     }
 
     internal fun applyPromptResponse(response: PromptResponse) {
+        handlePromptResponse(response)
+    }
+
+    private fun handlePromptResponseFromClient(clientToken: String, response: PromptResponse) {
+        if (!isCurrentClientToken(clientToken)) {
+            logger.info("[SessionLifecycle] Ignoring stale prompt response from token=$clientToken")
+            return
+        }
         handlePromptResponse(response)
     }
 
@@ -1107,18 +1173,35 @@ class AcpSessionService(private val project: Project) : Disposable {
         pendingPromptEchoRemainder = null
     }
 
+    private fun clearSessionViewState(reason: String) {
+        logger.info("[SessionLifecycle] clearSessionViewState start: reason=$reason, before=${sessionStateSnapshot()}")
+        _currentSession = null
+        _messages.value = emptyList()
+        _activeToolCalls.value = emptyMap()
+        _availableCommands.value = emptyList()
+        _availableModes.value = emptyList()
+        _currentModeId.value = ""
+        _availableModels.value = emptyList()
+        _currentModelId.value = ""
+        resetDerivedSessionState()
+        logger.info("[SessionLifecycle] clearSessionViewState end: reason=$reason, after=${sessionStateSnapshot()}")
+    }
+
     /**
      * Disconnect from the current session.
      */
     suspend fun disconnect() {
         lifecycleMutex.withLock {
+            logger.info("[SessionLifecycle] disconnect requested: state=${sessionStateSnapshot()}")
             disconnectLocked()
         }
     }
 
     private fun disconnectLocked() {
+        logger.info("[SessionLifecycle] disconnectLocked start: state=${sessionStateSnapshot()}")
         shutdownActiveClient()
-        resetSessionData(keepConnectedFlag = false)
+        resetSessionData(keepConnectedFlag = false, reason = "disconnectLocked")
+        logger.info("[SessionLifecycle] disconnectLocked end: state=${sessionStateSnapshot()}")
     }
 
     fun currentAgentId(): String? = currentAgentDefinition?.id
@@ -1210,44 +1293,65 @@ class AcpSessionService(private val project: Project) : Disposable {
     }
 
     private fun shutdownActiveClient() {
+        logger.info("[SessionLifecycle] shutdownActiveClient start: state=${sessionStateSnapshot()}")
+        activeClientToken = null
         client?.close()
         client = null
         coroutineScope?.cancel()
         coroutineScope = null
         _currentSession = null
+        logger.info("[SessionLifecycle] shutdownActiveClient end: state=${sessionStateSnapshot()}")
     }
 
     private suspend fun ensureConnectedClient(agentDefinition: AgentRegistry.InstalledAgent): AcpAgentClient {
+        logger.info(
+            "[SessionLifecycle] ensureConnectedClient: target=${agentDefinition.id}, reuse=${shouldReuseCurrentClient(agentDefinition)}, " +
+                "state=${sessionStateSnapshot()}"
+        )
         if (shouldReuseCurrentClient(agentDefinition)) {
             currentAgentDefinition = agentDefinition
             return requireNotNull(client)
         }
 
         shutdownActiveClient()
-        return connectNewClient(agentDefinition)
+        return connectNewClient(agentDefinition).also { runtime ->
+            swapToNewClient(runtime, "ensureConnectedClient:${agentDefinition.id}", preserveConnectedState = false)
+        }.client
     }
 
-    private suspend fun connectNewClient(agentDefinition: AgentRegistry.InstalledAgent): AcpAgentClient {
+    private suspend fun connectNewClient(agentDefinition: AgentRegistry.InstalledAgent): ClientRuntime {
+        logger.info("[SessionLifecycle] connectNewClient start: target=${agentDefinition.id}, state=${sessionStateSnapshot()}")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val newClient = createClientBridge(agentDefinition, scope)
+        val token = UUID.randomUUID().toString()
+        val newClient = createClientBridge(agentDefinition, scope, token)
         val info = withTimeout(SESSION_CONNECT_TIMEOUT_MS) {
             newClient.connect()
         } ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' did not complete ACP initialization.")
-
-        coroutineScope = scope
-        client = newClient
-        currentAgentDefinition = agentDefinition
-        _currentAgent.value = info
-        return newClient
+        logger.info(
+            "[SessionLifecycle] connectNewClient success: target=${agentDefinition.id}, " +
+                "agentInfo=${info.implementation?.name ?: "<none>"}, state=${sessionStateSnapshot()}"
+        )
+        return ClientRuntime(
+            token = token,
+            client = newClient,
+            scope = scope,
+            agentDefinition = agentDefinition,
+            agentInfo = info
+        )
     }
 
     private fun createClientBridge(
         agentDefinition: AgentRegistry.InstalledAgent,
-        scope: CoroutineScope
+        scope: CoroutineScope,
+        clientToken: String? = null
     ): AcpAgentClient {
         val configService = project.service<AcpAgentsConfigService>()
         val sessionUpdateHandler: suspend (SessionUpdate) -> Unit = { update ->
-            handleSessionUpdate(update)
+            if (clientToken == null) {
+                handleSessionUpdate(update)
+            } else {
+                handleSessionUpdateFromClient(clientToken, update)
+            }
         }
         val permissionRequestHandler: suspend (SessionUpdate.ToolCallUpdate, List<PermissionOption>, JsonElement?) -> RequestPermissionResponse =
             { toolCall, permissions, meta ->
@@ -1265,6 +1369,104 @@ class AcpSessionService(private val project: Project) : Disposable {
         ) ?: throw IllegalStateException("Agent '${agentDefinition.displayName}' is not configured.")
     }
 
+    private fun swapToNewClient(
+        runtime: ClientRuntime,
+        traceId: String,
+        preserveConnectedState: Boolean
+    ) {
+        val previous = currentClientRuntime()
+        activeClientToken = runtime.token
+        client = runtime.client
+        coroutineScope = runtime.scope
+        currentAgentDefinition = runtime.agentDefinition
+        _currentAgent.value = runtime.agentInfo
+        if (!preserveConnectedState) {
+            setConnectedState(false, "swapToNewClient:prepare:$traceId")
+        }
+        logger.info(
+            "[SessionLifecycle][$traceId] client swap success: previous=${previous?.agentDefinition?.id ?: "<none>"} -> " +
+                "${runtime.agentDefinition.id}, token=${runtime.token}"
+        )
+    }
+
+    private fun cleanupStaleClientAsync(runtime: ClientRuntime, traceId: String) {
+        serviceScope.launch {
+            logger.info(
+                "[SessionLifecycle][$traceId] stale client cleanup start: token=${runtime.token}, agent=${runtime.agentDefinition.id}"
+            )
+            try {
+                runtime.client.close()
+                logger.info(
+                    "[SessionLifecycle][$traceId] stale client cleanup end: token=${runtime.token}, agent=${runtime.agentDefinition.id}"
+                )
+            } catch (t: Throwable) {
+                logger.warn(
+                    "[SessionLifecycle][$traceId] stale client cleanup failed: token=${runtime.token}, agent=${runtime.agentDefinition.id}",
+                    t
+                )
+            } finally {
+                runtime.scope.cancel()
+            }
+        }
+    }
+
+    private fun cleanupFailedStagedRuntime(runtime: ClientRuntime?, traceId: String) {
+        if (runtime == null) {
+            return
+        }
+        logger.info(
+            "[SessionLifecycle][$traceId] staged client cleanup start: token=${runtime.token}, agent=${runtime.agentDefinition.id}"
+        )
+        try {
+            runtime.client.close()
+            logger.info(
+                "[SessionLifecycle][$traceId] staged client cleanup end: token=${runtime.token}, agent=${runtime.agentDefinition.id}"
+            )
+        } catch (t: Throwable) {
+            logger.warn(
+                "[SessionLifecycle][$traceId] staged client cleanup failed: token=${runtime.token}, agent=${runtime.agentDefinition.id}",
+                t
+            )
+        } finally {
+            runtime.scope.cancel()
+        }
+    }
+
+    private fun restoreReplaceFailureState(
+        previousRuntime: ClientRuntime?,
+        previousSession: ClientSession?,
+        previousConnected: Boolean,
+        traceId: String
+    ) {
+        if (previousRuntime == null) {
+            logger.info("[SessionLifecycle][$traceId] replaceSession failed with no previous runtime; disconnecting")
+            resetSessionData(keepConnectedFlag = false, reason = "replaceSession:restoreFailure:$traceId")
+            return
+        }
+        activeClientToken = previousRuntime.token
+        client = previousRuntime.client
+        coroutineScope = previousRuntime.scope
+        currentAgentDefinition = previousRuntime.agentDefinition
+        _currentAgent.value = previousRuntime.agentInfo
+        _currentSession = previousSession
+        setConnectedState(previousConnected && previousSession != null, "replaceSession:restoreFailure:$traceId")
+        logger.info(
+            "[SessionLifecycle][$traceId] restore previous client after replace failure: agent=${previousRuntime.agentDefinition.id}, " +
+                "sessionId=${previousSession?.sessionId?.value ?: "<none>"}"
+        )
+    }
+
+    private fun currentClientRuntime(): ClientRuntime? {
+        val activeClient = client ?: return null
+        val activeScope = coroutineScope ?: return null
+        val agentDefinition = currentAgentDefinition ?: return null
+        val agentInfo = _currentAgent.value ?: return null
+        val token = activeClientToken ?: return null
+        return ClientRuntime(token, activeClient, activeScope, agentDefinition, agentInfo)
+    }
+
+    private fun isCurrentClientToken(clientToken: String): Boolean = activeClientToken == clientToken
+
     private fun shouldReuseCurrentClient(agentDefinition: AgentRegistry.InstalledAgent): Boolean {
         val currentAgentId = currentAgentDefinition?.id
         return client != null && currentAgentId == agentDefinition.id
@@ -1274,23 +1476,32 @@ class AcpSessionService(private val project: Project) : Disposable {
         return shouldReuseCurrentClient(agentDefinition) && !_isLoading.value && !_isConnecting.value
     }
 
-    private fun resetSessionData(keepConnectedFlag: Boolean, clearAgentBinding: Boolean = true) {
+    private fun resetSessionData(
+        keepConnectedFlag: Boolean,
+        clearAgentBinding: Boolean
+    ) {
+        resetSessionData(keepConnectedFlag, clearAgentBinding, "unspecified")
+    }
+
+    private fun resetSessionData(
+        keepConnectedFlag: Boolean,
+        clearAgentBinding: Boolean = true,
+        reason: String = "unspecified"
+    ) {
+        logger.info(
+            "[SessionLifecycle] resetSessionData start: keepConnectedFlag=$keepConnectedFlag, " +
+                "clearAgentBinding=$clearAgentBinding, reason=$reason, before=${sessionStateSnapshot()}"
+        )
         if (!keepConnectedFlag) {
-            _isConnected.value = false
+            setConnectedState(false, "resetSessionData:$reason")
         }
         _currentSession = null
         if (clearAgentBinding) {
             _currentAgent.value = null
             currentAgentDefinition = null
         }
-        _messages.value = emptyList()
-        _activeToolCalls.value = emptyMap()
-        _availableCommands.value = emptyList()
-        _availableModes.value = emptyList()
-        _currentModeId.value = ""
-        _availableModels.value = emptyList()
-        _currentModelId.value = ""
-        resetDerivedSessionState()
+        clearSessionViewState(reason)
+        logger.info("[SessionLifecycle] resetSessionData end: reason=$reason, after=${sessionStateSnapshot()}")
     }
 
     private fun autoApprovePermissions(
@@ -1312,6 +1523,37 @@ class AcpSessionService(private val project: Project) : Disposable {
                 meta
             )
         }
+    }
+
+    private fun setLoadingState(value: Boolean, reason: String) {
+        if (_isLoading.value != value) {
+            logger.info("[SessionLifecycle] isLoading ${_isLoading.value} -> $value ($reason)")
+        }
+        _isLoading.value = value
+    }
+
+    private fun setConnectingState(value: Boolean, reason: String) {
+        if (_isConnecting.value != value) {
+            logger.info("[SessionLifecycle] isConnecting ${_isConnecting.value} -> $value ($reason)")
+        }
+        _isConnecting.value = value
+    }
+
+    private fun setConnectedState(value: Boolean, reason: String) {
+        if (_isConnected.value != value) {
+            logger.info("[SessionLifecycle] isConnected ${_isConnected.value} -> $value ($reason)")
+        }
+        _isConnected.value = value
+    }
+
+    private fun sessionStateSnapshot(): String {
+        val sessionId = _currentSession?.sessionId?.value ?: "<none>"
+        val currentAgentId = currentAgentDefinition?.id ?: "<none>"
+        val currentAgentName = currentAgentDefinition?.displayName ?: "<none>"
+        return "connected=${_isConnected.value}, loading=${_isLoading.value}, connecting=${_isConnecting.value}, " +
+            "currentAgentId=$currentAgentId, currentAgentName=$currentAgentName, sessionId=$sessionId, " +
+            "messages=${_messages.value.size}, commands=${_availableCommands.value.size}, " +
+            "modes=${_availableModes.value.size}, models=${_availableModels.value.size}"
     }
 
     private fun ToolKind.toUiValue(): String {

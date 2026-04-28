@@ -5,6 +5,7 @@ import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.ColorUtil
@@ -34,6 +35,7 @@ class ChatViewPanel(
     project: Project,
     parentDisposable: Disposable
 ) : JPanel(BorderLayout()), Disposable {
+    private val logger = Logger.getInstance(ChatViewPanel::class.java)
 
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val toolWindowProject = project
@@ -107,6 +109,15 @@ class ChatViewPanel(
             val scrollSnapshot = captureScrollSnapshot()
             val visibleMessages = state.messages.filter { it.hasRenderableContent() }
             val showEmptyState = visibleMessages.isEmpty() && !state.isLoading
+            val renderMode = when {
+                showEmptyState -> "empty_state"
+                visibleMessages.isEmpty() -> "loading_without_messages"
+                else -> "message_list"
+            }
+            logger.info(
+                "[ChatRender] render requested: totalMessages=${state.messages.size}, visibleMessages=${visibleMessages.size}, " +
+                    "isLoading=${state.isLoading}, lastStopReason=${state.lastStopReason}, mode=$renderMode"
+            )
 
             expandedThoughts.retainAll(state.messages.map { it.id }.toSet())
             val renderModels = visibleMessages.toRenderModels(

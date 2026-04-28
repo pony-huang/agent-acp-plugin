@@ -4,6 +4,7 @@ import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.settings.AcpPluginSettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -17,6 +18,7 @@ import kotlinx.serialization.json.JsonElement
  */
 @Service(Service.Level.PROJECT)
 class AcpAgentsConfigService(private val project: Project) {
+    private val logger = Logger.getInstance(AcpAgentsConfigService::class.java)
 
     private val settings: AcpPluginSettings
         get() = AcpPluginSettings.getInstance()
@@ -93,6 +95,10 @@ class AcpAgentsConfigService(private val project: Project) {
         val config = getAgentConfig(agentName) ?: return null
         val cmd = listOf(config.command) + config.args
         val envs = config.env.map { "${it.key}=${it.value}" }
+        logger.info(
+            "[AgentClient] createClientBridge: agentName=$agentName, command=${config.command}, " +
+                "args=${config.args}, envKeys=${config.env.keys.sorted()}"
+        )
         return AcpAgentClient(
             coroutineScope = coroutineScope,
             project = project,

@@ -481,10 +481,44 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         deferredResponse.await()
     }
 
+    fun testHandleSessionUpdateFromClientIgnoresStaleClientToken() {
+        setActiveClientToken("current-token")
+
+        invokeHandleSessionUpdateFromClient(
+            clientToken = "stale-token",
+            update = SessionUpdate.AgentMessageChunk(ContentBlock.Text("stale"))
+        )
+
+        assertTrue(service.messages.value.isEmpty())
+
+        invokeHandleSessionUpdateFromClient(
+            clientToken = "current-token",
+            update = SessionUpdate.AgentMessageChunk(ContentBlock.Text("fresh"))
+        )
+
+        assertEquals("fresh", service.messages.value.single().content)
+    }
+
     private fun setPendingPromptEcho(value: String) {
         val field = AcpSessionService::class.java.getDeclaredField("pendingPromptEchoRemainder")
         field.isAccessible = true
         field.set(service, value)
+    }
+
+    private fun setActiveClientToken(value: String?) {
+        val field = AcpSessionService::class.java.getDeclaredField("activeClientToken")
+        field.isAccessible = true
+        field.set(service, value)
+    }
+
+    private fun invokeHandleSessionUpdateFromClient(clientToken: String, update: SessionUpdate) {
+        val method = AcpSessionService::class.java.getDeclaredMethod(
+            "handleSessionUpdateFromClient",
+            String::class.java,
+            SessionUpdate::class.java
+        )
+        method.isAccessible = true
+        method.invoke(service, clientToken, update)
     }
 
     private fun setCurrentSession(session: ClientSession) {
