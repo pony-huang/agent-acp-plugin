@@ -6,7 +6,6 @@ import org.gradle.api.tasks.testing.logging.TestLogEvent
 plugins {
     id("java") // Java support
     alias(libs.plugins.kotlin) // Kotlin support
-    alias(libs.plugins.kotlinSerialization) // Kotlin serialization
     alias(libs.plugins.intelliJPlatform) // IntelliJ Platform Gradle Plugin
     alias(libs.plugins.changelog) // Gradle Changelog Plugin
     alias(libs.plugins.qodana) // Gradle Qodana Plugin
@@ -34,7 +33,6 @@ repositories {
 // Dependencies are managed with Gradle version catalog - read more: https://docs.gradle.org/current/userguide/version_catalogs.html
 dependencies {
     implementation(libs.acp)
-    implementation(libs.kotlinxSerializationJson)
 
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)

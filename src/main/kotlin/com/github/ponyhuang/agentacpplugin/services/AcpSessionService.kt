@@ -54,7 +54,6 @@ class AcpSessionService(private val project: Project) : Disposable {
     private val logger: Logger = Logger.getInstance(AcpSessionService::class.java)
     
     private val permissionRequestService = project.service<AcpPermissionRequestService>()
-    private val persistenceService = project.service<AcpSessionPersistenceService>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lifecycleMutex = Mutex()
     private var activeClientToken: String? = null
@@ -299,16 +298,6 @@ class AcpSessionService(private val project: Project) : Disposable {
                         "modes=${session.availableModes.size}, models=${session.availableModels.size}, state=${sessionStateSnapshot()}"
                 )
 
-                val savedSession = AcpSessionPersistenceService.SavedSession(
-                    id = UUID.randomUUID().toString(),
-                    agentName = agentDefinition.displayName,
-                    sessionId = session.sessionId.value,
-                    title = MyBundle.message("session.newSessionTitle"),
-                    lastUpdated = System.currentTimeMillis(),
-                    cwd = cwd,
-                    supportsLoadSession = info.capabilities.sessionCapabilities.resume != null
-                )
-                persistenceService.addSession(savedSession)
             } catch (t: TimeoutCancellationException) {
                 handleSessionStartupTimeout(
                     operation = "creating",
@@ -384,16 +373,6 @@ class AcpSessionService(private val project: Project) : Disposable {
                     cleanupStaleClientAsync(previousRuntime, traceId)
                 }
 
-                val savedSession = AcpSessionPersistenceService.SavedSession(
-                    id = UUID.randomUUID().toString(),
-                    agentName = agentDefinition.displayName,
-                    sessionId = session.sessionId.value,
-                    title = MyBundle.message("session.newSessionTitle"),
-                    lastUpdated = System.currentTimeMillis(),
-                    cwd = cwd,
-                    supportsLoadSession = info.capabilities.sessionCapabilities.resume != null
-                )
-                persistenceService.addSession(savedSession)
             } catch (t: TimeoutCancellationException) {
                 cleanupFailedStagedRuntime(stagedRuntime, traceId)
                 restoreReplaceFailureState(previousRuntime, previousSession, previousConnected, traceId)
@@ -455,10 +434,6 @@ class AcpSessionService(private val project: Project) : Disposable {
                     "[SessionLifecycle][$traceId] resumeSession success: sessionId=${session.sessionId.value}, " +
                         "modes=${session.availableModes.size}, models=${session.availableModels.size}, state=${sessionStateSnapshot()}"
                 )
-
-                persistenceService.updateSession(sessionId, agentDefinition.displayName) { saved ->
-                    saved.copy(lastUpdated = System.currentTimeMillis())
-                }
             } catch (t: TimeoutCancellationException) {
                 handleSessionStartupTimeout(
                     operation = "resuming session $sessionId for",
@@ -932,19 +907,8 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Handle session info update - updates title/updatedAt.
      */
     private fun handleSessionInfoUpdate(update: SessionUpdate.SessionInfoUpdate) {
-        val sessionId = _currentSession?.sessionId?.value
-        val agentName = currentAgentDefinition?.displayName
-
         update.title?.let {
             _sessionTitle.value = it
-            // Persist title update
-            if (sessionId != null && agentName != null) {
-                serviceScope.launch {
-                    persistenceService.updateSession(sessionId, agentName) { saved ->
-                        saved.copy(title = it, lastUpdated = System.currentTimeMillis())
-                    }
-                }
-            }
         }
         update.updatedAt?.let { _sessionUpdatedAt.value = parseUpdatedAt(it) }
         logger.info("[AcpSessionService] Session info update: title=${update.title}, updatedAt=${update.updatedAt}")
@@ -1134,16 +1098,6 @@ class AcpSessionService(private val project: Project) : Disposable {
         if (_sessionTitle.value.isNullOrBlank()) {
             val title = text.take(50).ifBlank { null }
             _sessionTitle.value = title
-            // Persist the derived title from first prompt
-            val sessionId = _currentSession?.sessionId?.value
-            val agentName = currentAgentDefinition?.displayName
-            if (sessionId != null && agentName != null && title != null) {
-                serviceScope.launch {
-                    persistenceService.updateSession(sessionId, agentName) { saved ->
-                        saved.copy(title = title, lastUpdated = System.currentTimeMillis())
-                    }
-                }
-            }
         }
         _sessionUpdatedAt.value = System.currentTimeMillis()
     }
@@ -1205,20 +1159,6 @@ class AcpSessionService(private val project: Project) : Disposable {
     }
 
     fun currentAgentId(): String? = currentAgentDefinition?.id
-
-    /**
-     * Delete a saved session from persistence.
-     */
-    suspend fun deleteSavedSession(sessionId: String) {
-        persistenceService.deleteSession(sessionId)
-    }
-
-    /**
-     * Get all saved sessions from persistence.
-     */
-    fun getSavedSessions(): List<AcpSessionPersistenceService.SavedSession> {
-        return persistenceService.getResumableSessions()
-    }
 
     /**
      * Add a message to the chat history.
