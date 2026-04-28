@@ -94,7 +94,7 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
         assertTrue(opened)
     }
 
-    fun testSessionActionShowsLoadingIndicatorWhileListingSessions() {
+    fun testSessionActionDisabledWhileListingSessions() {
         val chatViewToolbar = ChatViewToolbar(
             isLoading = { false },
             isListingSessions = { true },
@@ -108,7 +108,6 @@ class AcpConversationToolbarTest : BasePlatformTestCase() {
 
         assertFalse(chatViewToolbar.isNewSessionActionEnabled())
         assertFalse(chatViewToolbar.isSessionActionEnabled())
-        assertTrue(chatViewToolbar.isSessionLoadingIndicatorVisible())
     }
 
     fun testPerformNewSessionActionInvokesCallbackWhenEnabled() {

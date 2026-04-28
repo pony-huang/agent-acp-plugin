@@ -30,10 +30,6 @@ class ChatViewToolbar(
         actionGroup,
         true
     )
-    private val sessionsLoadingIndicator = JLabel(AnimatedIcon.Default.INSTANCE).apply {
-        isVisible = false
-        toolTipText = MyBundle.message("toolbar.loadingSessions")
-    }
     private val connectionStatusIndicator = JLabel().apply {
         isVisible = false
         toolTipText = MyBundle.message("toolbar.connectionStatus")
@@ -88,7 +84,6 @@ class ChatViewToolbar(
         alignmentX = LEFT_ALIGNMENT
         toolbar.targetComponent = this
         add(toolbar.component)
-        add(sessionsLoadingIndicator)
         add(connectionStatusIndicator)
         @Suppress("DEPRECATION")
         toolbar.updateActionsImmediately()
@@ -96,7 +91,6 @@ class ChatViewToolbar(
 
     fun update() {
         runOnEdt {
-            sessionsLoadingIndicator.isVisible = isListingSessions()
             updateConnectionStatus()
             @Suppress("DEPRECATION")
             toolbar.updateActionsImmediately()
@@ -135,8 +129,6 @@ class ChatViewToolbar(
     }
 
     internal fun isSessionActionEnabled(): Boolean = hasSelectedAgent() && !isLoading() && !isListingSessions()
-
-    internal fun isSessionLoadingIndicatorVisible(): Boolean = sessionsLoadingIndicator.isVisible
 
     internal fun performSessionAction() {
         if (isSessionActionEnabled()) {
