@@ -95,7 +95,7 @@ internal class MessageCardPanel(
         headerLabel.foreground = UIUtil.getContextHelpForeground()
         headerLabel.alignmentX = LEFT_ALIGNMENT
 
-        val nextEntries = message.entries.ifEmpty { message.legacyRenderableEntries() }
+        val nextEntries = visibleEntries(message.entries.ifEmpty { message.legacyRenderableEntries() })
         val shouldRebuildBody =
             forceRebuildBody ||
                 entryViews.size != nextEntries.size ||
@@ -114,6 +114,18 @@ internal class MessageCardPanel(
         chrome.contentPanel.revalidate()
         revalidate()
         repaint()
+    }
+
+    private fun visibleEntries(
+        entries: List<AcpSessionService.MessageEntry>
+    ): List<AcpSessionService.MessageEntry> {
+        val hideContent = entries.any { entry ->
+            entry is AcpSessionService.MessageEntry.ToolCall && entry.toolCall.kind == "edit"
+        }
+        if (!hideContent) {
+            return entries
+        }
+        return entries.filterNot { entry -> entry is AcpSessionService.MessageEntry.Content }
     }
 
     private fun rebuildBody(

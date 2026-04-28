@@ -19,6 +19,8 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.event.ActionListener
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import javax.swing.BorderFactory
@@ -33,6 +35,8 @@ internal class ToolCallRow(
     toolCall: AcpSessionService.ToolCallInfo
 ) : JPanel(), Disposable {
     private val titleLabel = JBLabel()
+    private val titleLink = ActionLink("") {}
+    private val titleContainer = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
     private val openDiffLink = ActionLink(MyBundle.message("toolcall.diff.openPreview")) {
         openAllDiffPreviews()
     }.apply {
@@ -43,6 +47,7 @@ internal class ToolCallRow(
     private val detailsPanel = JPanel()
     private val diffContainer = JPanel()
     private var currentDiffContents: List<AcpSessionService.ToolCallDiffInfo> = emptyList()
+    private var titleLinkAction: ActionListener? = null
 
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
@@ -62,12 +67,27 @@ internal class ToolCallRow(
                     JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
                         isOpaque = false
                         add(
-                            titleLabel.apply {
-                                foreground = UIUtil.getLabelForeground()
+                            titleContainer.apply {
+                                isOpaque = false
+                                add(
+                                    titleLabel.apply {
+                                        foreground = UIUtil.getLabelForeground()
+                                    }
+                                )
+                                add(
+                                    titleLink.apply {
+                                        isVisible = false
+                                        border = JBUI.Borders.empty()
+                                        alignmentX = LEFT_ALIGNMENT
+                                    }
+                                )
                             },
                             BorderLayout.CENTER
                         )
-                        add(openDiffLink, BorderLayout.EAST)
+                        add(
+                            openDiffLink,
+                            BorderLayout.EAST
+                        )
                     },
                     BorderLayout.CENTER
                 )
@@ -91,20 +111,51 @@ internal class ToolCallRow(
     }
 
     fun update(toolCall: AcpSessionService.ToolCallInfo) {
-        titleLabel.text = "${toolKindDisplay(toolCall.kind)} ${toolCall.title}"
+        val hidesBodyContent = toolCall.kind == "edit"
+        val primaryLocation = toolCall.locations.firstOrNull()
+        val navigableFile = primaryLocation?.takeIf { toolCall.kind == "read" }?.let { resolveNavigableFile(it.path) }
+        updateTitle(toolCall, primaryLocation, navigableFile)
         statusLabel.updateStatus(toolCall.status)
         openDiffLink.isVisible = toolCall.diffContents.isNotEmpty()
         detailsPanel.removeAll()
         val detailComponents = buildList {
-            toolCall.locations.firstOrNull()?.let { add(createLocationComponent(toolCall.kind, it)) }
+            if (!hidesBodyContent && !(toolCall.kind == "read" && primaryLocation != null && navigableFile != null)) {
+                primaryLocation?.let { add(createLocationComponent(toolCall.kind, it)) }
+            }
         }
         detailComponents.forEachIndexed { index, component ->
             component.border = if (index == 0) JBUI.Borders.empty() else JBUI.Borders.emptyTop(2)
             detailsPanel.add(component)
         }
-        rebuildDiffPreviews(toolCall.diffContents)
+        currentDiffContents = toolCall.diffContents
+        rebuildDiffPreviews(if (hidesBodyContent) emptyList() else toolCall.diffContents)
         revalidate()
         repaint()
+    }
+
+    private fun updateTitle(
+        toolCall: AcpSessionService.ToolCallInfo,
+        primaryLocation: AcpSessionService.ToolCallLocationInfo?,
+        navigableFile: VirtualFile?
+    ) {
+        val kindDisplay = toolKindDisplay(toolCall.kind)
+        if (toolCall.kind == "read" && primaryLocation != null && navigableFile != null) {
+            titleLabel.isVisible = true
+            titleLabel.text = kindDisplay
+            titleLink.isVisible = true
+            titleLink.text = linkTextFor(primaryLocation, navigableFile)
+            titleLinkAction?.let(titleLink::removeActionListener)
+            titleLinkAction = ActionListener {
+                navigateTo(primaryLocation, navigableFile)
+            }
+            titleLink.addActionListener(titleLinkAction)
+        } else {
+            titleLinkAction?.let(titleLink::removeActionListener)
+            titleLinkAction = null
+            titleLink.isVisible = false
+            titleLabel.isVisible = true
+            titleLabel.text = buildTitleText(toolCall.kind, toolCall.title)
+        }
     }
 
     private fun createLocationComponent(
@@ -114,10 +165,7 @@ internal class ToolCallRow(
         val file = if (toolKind == "read") resolveNavigableFile(location.path) else null
         return if (file != null) {
             ActionLink(linkTextFor(location, file)) {
-                val descriptor = location.line?.let { line ->
-                    OpenFileDescriptor(project, file, line.minus(1).coerceAtLeast(0), 0)
-                } ?: OpenFileDescriptor(project, file)
-                descriptor.navigate(true)
+                navigateTo(location, file)
             }.apply {
                 alignmentX = LEFT_ALIGNMENT
             }
@@ -142,6 +190,43 @@ internal class ToolCallRow(
         }
     }
 
+    private fun buildTitleText(kind: String?, title: String): String {
+        val kindDisplay = toolKindDisplay(kind)
+        val kindTitleLabel = kindTitleLabel(kind)
+        return if (title.startsWith("$kindTitleLabel ", ignoreCase = true)) {
+            "$kindDisplay ${title.drop(kindTitleLabel.length).trimStart()}"
+        } else if (title.equals(kindTitleLabel, ignoreCase = true)) {
+            kindDisplay
+        } else {
+            "$kindDisplay $title"
+        }
+    }
+
+    private fun kindTitleLabel(kind: String?): String {
+        return when (kind) {
+            "read" -> MyBundle.message("toolkind.read")
+            "edit" -> MyBundle.message("toolkind.edit")
+            "delete" -> MyBundle.message("toolkind.delete")
+            "move" -> MyBundle.message("toolkind.move")
+            "search" -> MyBundle.message("toolkind.search")
+            "execute" -> MyBundle.message("toolkind.execute")
+            "think" -> MyBundle.message("toolkind.think")
+            "fetch" -> MyBundle.message("toolkind.fetch")
+            "switch_mode" -> MyBundle.message("toolkind.switchMode")
+            else -> MyBundle.message("toolkind.tool")
+        }
+    }
+
+    private fun navigateTo(
+        location: AcpSessionService.ToolCallLocationInfo,
+        file: VirtualFile
+    ) {
+        val descriptor = location.line?.let { line ->
+            OpenFileDescriptor(project, file, line.minus(1).coerceAtLeast(0), 0)
+        } ?: OpenFileDescriptor(project, file)
+        descriptor.navigate(true)
+    }
+
     private fun resolveNavigableFile(pathText: String): VirtualFile? = try {
         val nioPath = Path.of(pathText).let { rawPath ->
             if (!rawPath.isAbsolute) {
@@ -160,7 +245,6 @@ internal class ToolCallRow(
     }
 
     private fun rebuildDiffPreviews(diffContents: List<AcpSessionService.ToolCallDiffInfo>) {
-        currentDiffContents = diffContents
         diffContainer.removeAll()
 
         if (diffContents.isEmpty()) {

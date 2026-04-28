@@ -230,6 +230,56 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertTrue(markdownPane.y + markdownPane.height <= footer.y)
     }
 
+    fun testEditToolCallMessageHidesAssistantContentMarkdown() {
+        val card = instantiateMessageCard(
+            AcpSessionService.ChatMessage(
+                id = "assistant-edit-content-hidden",
+                role = "assistant",
+                content = "Edited file contents summary",
+                toolCalls = listOf(
+                    AcpSessionService.ToolCallInfo(
+                        toolCallId = "tool-edit-content-hidden",
+                        title = "Edit file",
+                        status = "completed",
+                        kind = "edit"
+                    )
+                )
+            ),
+            promptState = null
+        )
+
+        val toolRow = findByClassName(card, "ToolCallRow")
+        val markdownPane = findByClassName(card, "MarkdownPane")
+
+        assertNotNull(toolRow)
+        assertNull(markdownPane)
+    }
+
+    fun testSearchToolCallMessageKeepsAssistantContentMarkdownVisible() {
+        val card = instantiateMessageCard(
+            AcpSessionService.ChatMessage(
+                id = "assistant-search-content-visible",
+                role = "assistant",
+                content = "Found matching files",
+                toolCalls = listOf(
+                    AcpSessionService.ToolCallInfo(
+                        toolCallId = "tool-search-content-visible",
+                        title = "Search files",
+                        status = "completed",
+                        kind = "search"
+                    )
+                )
+            ),
+            promptState = null
+        )
+
+        val toolRow = findByClassName(card, "ToolCallRow")
+        val markdownPane = findByClassName(card, "MarkdownPane")
+
+        assertNotNull(toolRow)
+        assertNotNull(markdownPane)
+    }
+
     fun testAssistantLongMarkdownKeepsMultipleVisibleRowsAboveFooter() {
         val card = instantiateMessageCard(
             AcpSessionService.ChatMessage(
@@ -383,7 +433,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "📖 Read Read file" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "📖 Read file" }
         val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
 
         assertNotNull(titleLabel)
@@ -401,7 +451,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "🔍 Search Search workspace" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "🔍 Search workspace" }
         val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
         val animationTimer = statusIcon.javaClass.getDeclaredField("animationTimer").apply {
             isAccessible = true
@@ -442,10 +492,12 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val locationLink = findAllByType(row, ActionLink::class.java).firstOrNull { it.text == "Main.kt" }
+        val titlePrefix = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "📖 Read" }
+        val mainLinks = findAllByType(row, ActionLink::class.java).filter { it.text == "Main.kt" }
         val hiddenSummary = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "This content should stay hidden" }
 
-        assertNotNull(locationLink)
+        assertNotNull(titlePrefix)
+        assertEquals(1, mainLinks.size)
         assertNull(hiddenSummary)
     }
 
@@ -460,20 +512,38 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "📖 Read file" }
         val locationLink = findAllByType(row, ActionLink::class.java).firstOrNull { it.text == "missing/File.kt:3" }
         val locationLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "missing/File.kt:3" }
 
+        assertNotNull(titleLabel)
         assertNull(locationLink)
         assertNotNull(locationLabel)
     }
 
-    fun testToolCallRowEmbedsDiffPreviewWhenDiffContentExists() {
+    fun testNonRepeatedToolCallTitleRemainsIntact() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-edit-title",
+                title = "Apply patch",
+                status = "completed",
+                kind = "edit"
+            )
+        )
+
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "✏️ Edit Apply patch" }
+
+        assertNotNull(titleLabel)
+    }
+
+    fun testEditToolCallRowHidesBodyContent() {
         val row = instantiateToolCallRow(
             AcpSessionService.ToolCallInfo(
                 toolCallId = "tool-diff-preview",
                 title = "Apply patch",
                 status = "completed",
                 kind = "edit",
+                locations = listOf(locationInfo("src/Main.kt:12", "src/Main.kt", 12)),
                 diffContents = listOf(
                     AcpSessionService.ToolCallDiffInfo(
                         path = "src/Main.kt",
@@ -488,11 +558,15 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             val diffContainer = row.javaClass.getDeclaredField("diffContainer").apply {
                 isAccessible = true
             }.get(row) as JPanel
+            val detailsPanel = row.javaClass.getDeclaredField("detailsPanel").apply {
+                isAccessible = true
+            }.get(row) as JPanel
             val openDiffLink = row.javaClass.getDeclaredField("openDiffLink").apply {
                 isAccessible = true
             }.get(row) as ActionLink
 
-            assertEquals(1, diffContainer.componentCount)
+            assertEquals(0, detailsPanel.componentCount)
+            assertEquals(0, diffContainer.componentCount)
             assertTrue(openDiffLink.isVisible)
         } finally {
             row.javaClass.getMethod("dispose").invoke(row)

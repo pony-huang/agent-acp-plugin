@@ -1,5 +1,6 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
+import com.github.ponyhuang.agentacpplugin.MyBundle
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -31,7 +32,7 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
     private val planSummaryPanel = JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
         isOpaque = false
     }
-    private val titleLabel = JBLabel("Latest Plan")
+    private val titleLabel = JBLabel(MyBundle.message("plan.latestPlan"))
     private val countLabel = JBLabel().apply {
         foreground = UIUtil.getContextHelpForeground()
     }
@@ -127,13 +128,13 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
     }
 
     private fun refreshUi() {
-        countLabel.text = if (entries.isEmpty()) "" else "${entries.size} items"
+        countLabel.text = if (entries.isEmpty()) "" else MyBundle.message("plan.itemsCount", entries.size)
         summaryLabel.text = currentSummaryEntry()?.content.orEmpty()
         usageLabel.text = latestUsage?.let(::formatUsageSummary).orEmpty()
 
         planSummaryPanel.isVisible = entries.isNotEmpty()
         usageLabel.isVisible = latestUsage != null
-        planSummaryPanel.toolTipText = if (entries.isEmpty()) null else "Hover to preview the latest plan"
+        planSummaryPanel.toolTipText = if (entries.isEmpty()) null else MyBundle.message("plan.hoverToPreview")
         isVisible = entries.isNotEmpty() || latestUsage != null
         revalidate()
         repaint()
@@ -146,10 +147,11 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
     }
 
     private fun formatUsageSummary(usage: AcpSessionService.SessionUsageSummary): String {
-        val tokenSummary = "Tokens ${usage.usedTokens}/${usage.totalTokens}"
+        val tokenSummary = MyBundle.message("plan.tokens", usage.usedTokens, usage.totalTokens)
         val costSummary = usage.costAmount?.let { amount ->
             buildString {
-                append("Cost ")
+                append(MyBundle.message("plan.cost"))
+                append(' ')
                 append(amount)
                 usage.costCurrency?.takeIf { it.isNotBlank() }?.let { currency ->
                     append(' ')
@@ -262,7 +264,7 @@ private class PlanEntryRow(entry: AcpSessionService.SessionPlanItem) : JBPanel<P
             BorderLayout.CENTER
         )
         add(
-            JBLabel("${entry.status.replace('_', ' ')} | ${entry.priority}").apply {
+            JBLabel(MyBundle.message("plan.entryStatus", entry.status.replace('_', ' '), entry.priority)).apply {
                 foreground = UIUtil.getContextHelpForeground()
             },
             BorderLayout.SOUTH
