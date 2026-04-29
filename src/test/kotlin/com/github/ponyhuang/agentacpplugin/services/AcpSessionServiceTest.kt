@@ -162,6 +162,133 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertEquals("new text", toolCall.diffContents.single().newText)
     }
 
+    fun testToolCallUpdatePreservesExistingOldTextWhenIncomingDiffOmitsBaseline() {
+        service.applySessionUpdate(SessionUpdate.AgentMessageChunk(ContentBlock.Text("Working")))
+        service.applySessionUpdate(
+            SessionUpdate.ToolCall(
+                toolCallId = ToolCallId("tool-diff-merge"),
+                title = "Apply patch",
+                kind = ToolKind.EDIT,
+                status = ToolCallStatus.IN_PROGRESS,
+                content = listOf(
+                    ToolCallContent.Diff(
+                        path = "src/Main.kt",
+                        oldText = "original text",
+                        newText = "first edit"
+                    )
+                )
+            )
+        )
+
+        service.applySessionUpdate(
+            SessionUpdate.ToolCallUpdate(
+                toolCallId = ToolCallId("tool-diff-merge"),
+                content = listOf(
+                    ToolCallContent.Diff(
+                        path = "src/Main.kt",
+                        oldText = null,
+                        newText = "second edit"
+                    )
+                )
+            )
+        )
+
+        val diff = service.messages.value.single().toolCalls.single().diffContents.single()
+        assertEquals("src/Main.kt", diff.path)
+        assertEquals("original text", diff.oldText)
+        assertEquals("second edit", diff.newText)
+    }
+
+    fun testToolCallUpdateAppendsNewDiffPathWithoutDroppingExistingDiffs() {
+        service.applySessionUpdate(SessionUpdate.AgentMessageChunk(ContentBlock.Text("Working")))
+        service.applySessionUpdate(
+            SessionUpdate.ToolCall(
+                toolCallId = ToolCallId("tool-diff-append"),
+                title = "Apply patch",
+                kind = ToolKind.EDIT,
+                status = ToolCallStatus.IN_PROGRESS,
+                content = listOf(
+                    ToolCallContent.Diff(
+                        path = "src/Main.kt",
+                        oldText = "main old",
+                        newText = "main new"
+                    )
+                )
+            )
+        )
+
+        service.applySessionUpdate(
+            SessionUpdate.ToolCallUpdate(
+                toolCallId = ToolCallId("tool-diff-append"),
+                content = listOf(
+                    ToolCallContent.Diff(
+                        path = "src/Other.kt",
+                        oldText = "other old",
+                        newText = "other new"
+                    )
+                )
+            )
+        )
+
+        val diffs = service.messages.value.single().toolCalls.single().diffContents
+        assertEquals(2, diffs.size)
+        assertEquals("src/Main.kt", diffs[0].path)
+        assertEquals("main old", diffs[0].oldText)
+        assertEquals("main new", diffs[0].newText)
+        assertEquals("src/Other.kt", diffs[1].path)
+        assertEquals("other old", diffs[1].oldText)
+        assertEquals("other new", diffs[1].newText)
+    }
+
+    fun testToolCallUpdateKeepsFirstBaselineAcrossMultipleUpdatesForSamePath() {
+        service.applySessionUpdate(SessionUpdate.AgentMessageChunk(ContentBlock.Text("Working")))
+        service.applySessionUpdate(
+            SessionUpdate.ToolCall(
+                toolCallId = ToolCallId("tool-diff-multi"),
+                title = "Apply patch",
+                kind = ToolKind.EDIT,
+                status = ToolCallStatus.IN_PROGRESS,
+                content = listOf(
+                    ToolCallContent.Diff(
+                        path = "src/Main.kt",
+                        oldText = "original text",
+                        newText = "first edit"
+                    )
+                )
+            )
+        )
+
+        service.applySessionUpdate(
+            SessionUpdate.ToolCallUpdate(
+                toolCallId = ToolCallId("tool-diff-multi"),
+                content = listOf(
+                    ToolCallContent.Diff(
+                        path = "src/Main.kt",
+                        oldText = null,
+                        newText = "second edit"
+                    )
+                )
+            )
+        )
+        service.applySessionUpdate(
+            SessionUpdate.ToolCallUpdate(
+                toolCallId = ToolCallId("tool-diff-multi"),
+                content = listOf(
+                    ToolCallContent.Diff(
+                        path = "src/Main.kt",
+                        oldText = null,
+                        newText = "third edit"
+                    )
+                )
+            )
+        )
+
+        val diff = service.messages.value.single().toolCalls.single().diffContents.single()
+        assertEquals("src/Main.kt", diff.path)
+        assertEquals("original text", diff.oldText)
+        assertEquals("third edit", diff.newText)
+    }
+
     fun testNonTextContentProducesVisiblePlaceholder() {
         service.applySessionUpdate(
             SessionUpdate.AgentMessageChunk(

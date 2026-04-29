@@ -793,6 +793,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         val updatedStatus = update.status?.toUiValue()
         val updatedSummary = summarizeToolCallContent(update.content)
         val updatedLocations = update.locations?.map { it.toInfo() }
+        val incomingDiffContents = extractDiffToolCallContent(update.content)
         updatedStatus?.let { trackToolCallStatus(toolCallId, it) }
 
         // Update the tool call in messages
@@ -812,7 +813,7 @@ class AcpSessionService(private val project: Project) : Disposable {
                             status = updatedStatus ?: tc.status,
                             locations = updatedLocations ?: tc.locations,
                             contentSummary = mergeSummary(nextKind, updatedSummary, tc.contentSummary),
-                            diffContents = extractDiffToolCallContent(update.content).ifEmpty { tc.diffContents }
+                            diffContents = mergeDiffContents(tc.diffContents, incomingDiffContents)
                         )
                     } else tc
                 }
@@ -828,7 +829,7 @@ class AcpSessionService(private val project: Project) : Disposable {
                                         status = updatedStatus ?: entry.toolCall.status,
                                         locations = updatedLocations ?: entry.toolCall.locations,
                                         contentSummary = mergeSummary(nextKind, updatedSummary, entry.toolCall.contentSummary),
-                                        diffContents = extractDiffToolCallContent(update.content).ifEmpty { entry.toolCall.diffContents }
+                                        diffContents = mergeDiffContents(entry.toolCall.diffContents, incomingDiffContents)
                                     )
                                 )
                             } else {
@@ -850,6 +851,29 @@ class AcpSessionService(private val project: Project) : Disposable {
             } else msg
         }
         _messages.value = updatedMessages
+    }
+
+    private fun mergeDiffContents(
+        existing: List<ToolCallDiffInfo>,
+        incoming: List<ToolCallDiffInfo>
+    ): List<ToolCallDiffInfo> {
+        if (incoming.isEmpty()) {
+            return existing
+        }
+
+        val merged = existing.associateByTo(linkedMapOf(), ToolCallDiffInfo::path).toMutableMap()
+        incoming.forEach { next ->
+            val current = merged[next.path]
+            merged[next.path] = if (current == null) {
+                next
+            } else {
+                current.copy(
+                    newText = next.newText,
+                    oldText = next.oldText ?: current.oldText
+                )
+            }
+        }
+        return merged.values.toList()
     }
 
     /**

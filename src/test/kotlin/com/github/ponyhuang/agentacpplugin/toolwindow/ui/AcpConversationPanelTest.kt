@@ -1,6 +1,11 @@
 package com.github.ponyhuang.agentacpplugin.toolwindow.ui
 
 import com.github.ponyhuang.agentacpplugin.services.AcpSessionService
+import com.intellij.diff.contents.DocumentContent
+import com.intellij.diff.contents.EmptyContent
+import com.intellij.diff.tools.simple.SimpleDiffTool
+import com.intellij.diff.util.DiffUserDataKeys
+import com.intellij.diff.util.DiffUserDataKeysEx
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
@@ -571,6 +576,80 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         } finally {
             row.javaClass.getMethod("dispose").invoke(row)
         }
+    }
+
+    fun testDiffPreviewFactoryUsesDocumentContentForBothSidesWhenBaselineExists() {
+        val path = "src/Main.kt"
+        myFixture.addFileToProject(path, "class Main")
+        val preview = ToolCallDiffPreviewFactory.build(
+            project,
+            AcpSessionService.ToolCallDiffInfo(
+                path = path,
+                oldText = "old text",
+                newText = "new text"
+            )
+        )
+
+        assertTrue(preview.before is DocumentContent)
+        assertTrue(preview.after is DocumentContent)
+        assertEquals("old text", (preview.before as DocumentContent).document.text)
+        assertEquals("new text", (preview.after as DocumentContent).document.text)
+        assertEquals(ToolCallDiffPreviewFactory.ContentSource.PROTOCOL_OLD_TEXT, preview.beforeSource)
+        assertEquals(ToolCallDiffPreviewFactory.ContentSource.NEW_TEXT_CONTEXTUAL, preview.afterSource)
+    }
+
+    fun testDiffPreviewFactoryFallsBackToWorkspaceFileWhenBaselineIsMissing() {
+        val path = "src/NewFile.kt"
+        myFixture.addFileToProject(path, "class NewFile")
+        val preview = ToolCallDiffPreviewFactory.build(
+            project,
+            AcpSessionService.ToolCallDiffInfo(
+                path = path,
+                oldText = null,
+                newText = "new text"
+            )
+        )
+
+        assertTrue(preview.before is DocumentContent)
+        assertTrue(preview.after is DocumentContent)
+        assertEquals("class NewFile", (preview.before as DocumentContent).document.text)
+        assertEquals("new text", (preview.after as DocumentContent).document.text)
+        assertEquals(ToolCallDiffPreviewFactory.ContentSource.WORKSPACE_FILE, preview.beforeSource)
+        assertEquals(ToolCallDiffPreviewFactory.ContentSource.NEW_TEXT_CONTEXTUAL, preview.afterSource)
+    }
+
+    fun testDiffPreviewFactoryUsesEmptyBeforeSideForTrueNewFile() {
+        val preview = ToolCallDiffPreviewFactory.build(
+            project,
+            AcpSessionService.ToolCallDiffInfo(
+                path = "src/BrandNewFile.kt",
+                oldText = null,
+                newText = "new text"
+            )
+        )
+
+        assertTrue(preview.before is EmptyContent)
+        assertTrue(preview.after is DocumentContent)
+        assertEquals("new text", (preview.after as DocumentContent).document.text)
+        assertEquals(ToolCallDiffPreviewFactory.ContentSource.EMPTY_NEW_FILE, preview.beforeSource)
+        assertEquals(ToolCallDiffPreviewFactory.ContentSource.NEW_TEXT_CONTEXTUAL, preview.afterSource)
+    }
+
+    fun testDiffPreviewRequestForcesSideBySideSimpleDiffTool() {
+        val request = ToolCallDiffPreviewFactory.buildRequest(
+            project,
+            AcpSessionService.ToolCallDiffInfo(
+                path = "src/Main.kt",
+                oldText = "old text",
+                newText = "new text"
+            )
+        )
+
+        assertSame(SimpleDiffTool.INSTANCE, request.getUserData(DiffUserDataKeysEx.FORCE_DIFF_TOOL))
+        val readOnlyContents = request.getUserData(DiffUserDataKeys.FORCE_READ_ONLY_CONTENTS)!!
+        assertEquals(2, readOnlyContents.size)
+        assertTrue(readOnlyContents[0])
+        assertTrue(readOnlyContents[1])
     }
 
     fun testVisualPanelsUseTemplateChromeAndNestedPanels() {
