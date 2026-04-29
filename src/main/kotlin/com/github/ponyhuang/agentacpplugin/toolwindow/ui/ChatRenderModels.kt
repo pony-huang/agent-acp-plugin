@@ -25,7 +25,10 @@ internal data class ConversationViewState(
     val lastStopReason: StopReason?
 )
 
-internal fun AcpSessionService.ChatMessage.hasRenderableContent(): Boolean {
+internal fun AcpSessionService.ChatMessage.hasRenderableContent(
+    isLatestAssistantMessage: Boolean,
+    isLoading: Boolean
+): Boolean {
     if (entries.isNotEmpty()) {
         return true
     }
@@ -35,7 +38,10 @@ internal fun AcpSessionService.ChatMessage.hasRenderableContent(): Boolean {
     if (!thought.isNullOrBlank()) {
         return true
     }
-    return toolCalls.isNotEmpty()
+    if (toolCalls.isNotEmpty()) {
+        return true
+    }
+    return role == "assistant" && isLatestAssistantMessage && isLoading
 }
 
 internal fun AcpSessionService.ChatMessage.legacyRenderableEntries(): List<AcpSessionService.MessageEntry> {

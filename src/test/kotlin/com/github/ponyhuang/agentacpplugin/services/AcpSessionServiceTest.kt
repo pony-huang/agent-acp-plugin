@@ -23,15 +23,18 @@ import com.agentclientprotocol.model.ToolCallLocation
 import com.agentclientprotocol.model.ToolCallStatus
 import com.agentclientprotocol.model.ToolKind
 import com.agentclientprotocol.client.ClientSession
+import com.agentclientprotocol.common.Event
 import com.intellij.openapi.components.service
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.serialization.json.JsonPrimitive
 import java.lang.reflect.Proxy
 
 class AcpSessionServiceTest : BasePlatformTestCase() {
@@ -135,6 +138,29 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         val toolCall = service.messages.value.single().toolCalls.single()
         assertEquals("search", toolCall.kind)
         assertEquals("Terminal: term-search", toolCall.contentSummary)
+    }
+
+    fun testFailedToolCallUsesRawOutputAsFailureDetailsWhenContentMissing() {
+        service.applySessionUpdate(SessionUpdate.AgentMessageChunk(ContentBlock.Text("Working")))
+        service.applySessionUpdate(
+            SessionUpdate.ToolCall(
+                toolCallId = ToolCallId("tool-failed"),
+                title = "Run command",
+                kind = ToolKind.EXECUTE,
+                status = ToolCallStatus.IN_PROGRESS
+            )
+        )
+        service.applySessionUpdate(
+            SessionUpdate.ToolCallUpdate(
+                toolCallId = ToolCallId("tool-failed"),
+                status = ToolCallStatus.FAILED,
+                rawOutput = JsonPrimitive("Process exited with code 1")
+            )
+        )
+
+        val toolCall = service.messages.value.single().toolCalls.single()
+        assertEquals("failed", toolCall.status)
+        assertEquals("Process exited with code 1", toolCall.failureDetails)
     }
 
     fun testToolCallPreservesStructuredDiffContent() {
@@ -501,6 +527,37 @@ class AcpSessionServiceTest : BasePlatformTestCase() {
         assertNotNull(service.sessionUpdatedAt.value)
         assertEquals("cancelled", service.messages.value.single().toolCalls.single().status)
         assertTrue(service.activeToolCalls.value.isEmpty())
+    }
+
+    fun testSendPromptPreCreatesAssistantMessageBeforeFirstAgentUpdate() = runBlocking {
+        setCurrentSession(
+            Proxy.newProxyInstance(
+                ClientSession::class.java.classLoader,
+                arrayOf(ClientSession::class.java)
+            ) { _, method, _ ->
+                when (method.name) {
+                    "prompt" -> flowOf(Event.PromptResponseEvent(PromptResponse(stopReason = StopReason.END_TURN)))
+                    "getCurrentMode" -> MutableStateFlow(SessionModeId("default"))
+                    "getCurrentModel" -> MutableStateFlow(ModelId("gpt-5"))
+                    "getAvailableModes",
+                    "getAvailableModels" -> emptyList<Any>()
+                    "getModesSupported",
+                    "getModelsSupported",
+                    "getConfigOptionsSupported" -> false
+                    else -> null
+                }
+            } as ClientSession
+        )
+
+        service.sendPrompt("hello")
+
+        val messages = service.messages.value
+        assertEquals(2, messages.size)
+        assertEquals("user", messages[0].role)
+        assertEquals("hello", messages[0].content)
+        assertEquals("assistant", messages[1].role)
+        assertEquals("", messages[1].content)
+        assertTrue(messages[1].entries.isEmpty())
     }
 
     fun testCancelledPromptResponseMarksActiveToolCallsCancelled() {

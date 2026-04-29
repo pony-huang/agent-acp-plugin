@@ -166,6 +166,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         val kind: String? = null,
         val locations: List<ToolCallLocationInfo> = emptyList(),
         val contentSummary: String? = null,
+        val failureDetails: String? = null,
         val diffContents: List<ToolCallDiffInfo> = emptyList()
     )
 
@@ -572,6 +573,7 @@ class AcpSessionService(private val project: Project) : Disposable {
         setLoadingState(true, "sendPrompt:start")
         _lastStopReason.value = null
         addMessage(ROLE_USER, text)
+        ensureAssistantMessage()
         updateDerivedSessionTitleFromPrompt(text)
         pendingPromptEchoRemainder = text
 
@@ -773,6 +775,7 @@ class AcpSessionService(private val project: Project) : Disposable {
             kind = kind,
             locations = update.locations.map { it.toInfo() },
             contentSummary = summaryForTool(kind, update.content),
+            failureDetails = failureDetailsFor(status, update.content, update.rawOutput),
             diffContents = extractDiffToolCallContent(update.content)
         )
         val assistantMessage = ensureAssistantMessage()
@@ -807,12 +810,18 @@ class AcpSessionService(private val project: Project) : Disposable {
                 val updatedToolCalls = msg.toolCalls.map { tc ->
                     if (tc.toolCallId == toolCallId) {
                         val nextKind = update.kind?.toUiValue() ?: tc.kind
+                        val nextStatus = updatedStatus ?: tc.status
                         tc.copy(
                             title = update.title ?: tc.title,
                             kind = nextKind,
-                            status = updatedStatus ?: tc.status,
+                            status = nextStatus,
                             locations = updatedLocations ?: tc.locations,
                             contentSummary = mergeSummary(nextKind, updatedSummary, tc.contentSummary),
+                            failureDetails = mergeFailureDetails(
+                                nextStatus,
+                                failureDetailsFor(nextStatus, update.content, update.rawOutput),
+                                tc.failureDetails
+                            ),
                             diffContents = mergeDiffContents(tc.diffContents, incomingDiffContents)
                         )
                     } else tc
@@ -822,13 +831,19 @@ class AcpSessionService(private val project: Project) : Disposable {
                         is MessageEntry.ToolCall -> {
                             if (entry.toolCall.toolCallId == toolCallId) {
                                 val nextKind = update.kind?.toUiValue() ?: entry.toolCall.kind
+                                val nextStatus = updatedStatus ?: entry.toolCall.status
                                 entry.copy(
                                     toolCall = entry.toolCall.copy(
                                         title = update.title ?: entry.toolCall.title,
                                         kind = nextKind,
-                                        status = updatedStatus ?: entry.toolCall.status,
+                                        status = nextStatus,
                                         locations = updatedLocations ?: entry.toolCall.locations,
                                         contentSummary = mergeSummary(nextKind, updatedSummary, entry.toolCall.contentSummary),
+                                        failureDetails = mergeFailureDetails(
+                                            nextStatus,
+                                            failureDetailsFor(nextStatus, update.content, update.rawOutput),
+                                            entry.toolCall.failureDetails
+                                        ),
                                         diffContents = mergeDiffContents(entry.toolCall.diffContents, incomingDiffContents)
                                     )
                                 )
@@ -1064,6 +1079,41 @@ class AcpSessionService(private val project: Project) : Disposable {
             return null
         }
         return updatedSummary ?: existingSummary
+    }
+
+    private fun failureDetailsFor(
+        status: String?,
+        content: List<ToolCallContent>?,
+        rawOutput: JsonElement?
+    ): String? {
+        if (status != "failed") {
+            return null
+        }
+        return summarizeToolCallContent(content)?.takeIf { it.isNotBlank() }
+            ?: summarizeRawOutput(rawOutput)
+    }
+
+    private fun mergeFailureDetails(status: String, updated: String?, existing: String?): String? {
+        if (status != "failed") {
+            return null
+        }
+        return updated ?: existing
+    }
+
+    private fun summarizeRawOutput(rawOutput: JsonElement?): String? {
+        val text = rawOutput?.toString()?.trim().orEmpty()
+        if (text.isEmpty() || text == "null") {
+            return null
+        }
+        return if (text.length >= 2 && text.first() == '"' && text.last() == '"') {
+            text.substring(1, text.length - 1)
+                .replace("\\r\\n", "\n")
+                .replace("\\n", "\n")
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\")
+        } else {
+            text
+        }
     }
 
     private fun consumePendingPromptEcho(content: String): Boolean {

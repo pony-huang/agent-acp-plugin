@@ -107,7 +107,13 @@ class ChatViewPanel(
             }
 
             val scrollSnapshot = captureScrollSnapshot()
-            val visibleMessages = state.messages.filter { it.hasRenderableContent() }
+            val latestAssistantMessageId = state.messages.lastOrNull { it.role == "assistant" }?.id
+            val visibleMessages = state.messages.filter { message ->
+                message.hasRenderableContent(
+                    isLatestAssistantMessage = message.id == latestAssistantMessageId,
+                    isLoading = state.isLoading
+                )
+            }
             val showEmptyState = visibleMessages.isEmpty() && !state.isLoading
             val renderMode = when {
                 showEmptyState -> "empty_state"

@@ -6,6 +6,7 @@ import com.intellij.diff.contents.EmptyContent
 import com.intellij.diff.tools.simple.SimpleDiffTool
 import com.intellij.diff.util.DiffUserDataKeys
 import com.intellij.diff.util.DiffUserDataKeysEx
+import com.intellij.ide.HelpTooltip
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
@@ -486,6 +487,90 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertEquals(AllIcons.Actions.Cancel, statusIcon.icon)
     }
 
+    fun testFailedToolCallRowInstallsHelpTooltipOnStatusIcon() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-failed-tooltip",
+                title = "Run command",
+                status = "failed",
+                kind = "execute",
+                failureDetails = "Command failed\nExit code 1"
+            )
+        )
+
+        val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
+        val tooltip = HelpTooltip.getTooltipFor(statusIcon)
+        val descriptionField = tooltip!!::class.java.getDeclaredField("description").apply {
+            isAccessible = true
+        }
+
+        assertEquals(AllIcons.General.Error, statusIcon.icon)
+        assertEquals("Command failed<br/>Exit code 1", descriptionField.get(tooltip))
+        assertEquals("<html>Command failed<br/>Exit code 1</html>", statusIcon.toolTipText)
+    }
+
+    fun testFailedToolCallRowRemovesHelpTooltipAfterStatusRecovery() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-failed-tooltip-clear",
+                title = "Run command",
+                status = "failed",
+                kind = "execute",
+                failureDetails = "Command failed"
+            )
+        )
+
+        val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
+        assertNotNull(HelpTooltip.getTooltipFor(statusIcon))
+
+        row.javaClass.getMethod("update", AcpSessionService.ToolCallInfo::class.java).invoke(
+            row,
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-failed-tooltip-clear",
+                title = "Run command",
+                status = "completed",
+                kind = "execute",
+                contentSummary = "Recovered"
+            )
+        )
+
+        assertNull(HelpTooltip.getTooltipFor(statusIcon))
+        assertEquals(AllIcons.General.InspectionsOK, statusIcon.icon)
+    }
+
+    fun testFailedToolCallRowSkipsHelpTooltipWithoutFailureSummary() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-failed-no-summary",
+                title = "Run command",
+                status = "failed",
+                kind = "execute"
+            )
+        )
+
+        val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
+
+        assertEquals(AllIcons.General.Error, statusIcon.icon)
+        assertNull(HelpTooltip.getTooltipFor(statusIcon))
+    }
+
+    fun testFailedToolCallRowFallsBackToContentSummaryForTooltip() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-failed-content-summary",
+                title = "Run command",
+                status = "failed",
+                kind = "execute",
+                contentSummary = "Fallback failure message"
+            )
+        )
+
+        val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
+
+        assertNotNull(HelpTooltip.getTooltipFor(statusIcon))
+        assertEquals("<html>Fallback failure message</html>", statusIcon.toolTipText)
+    }
+
     fun testReadToolCallRowUsesActionLinkForExistingFileAndHidesSummary() {
         myFixture.addFileToProject("src/Main.kt", "class Main")
         val row = instantiateToolCallRow(
@@ -798,6 +883,39 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertNotNull(animationTimer.get(statusIcon))
     }
 
+    fun testConversationRenderShowsEmptyLatestAssistantCardWhileLoading() {
+        val disposable = Disposer.newDisposable()
+        val panel = ChatViewPanel(project, disposable)
+        try {
+            val host = JPanel(BorderLayout()).apply {
+                setSize(320, 400)
+                add(panel, BorderLayout.CENTER)
+            }
+            val userMessage = AcpSessionService.ChatMessage(
+                id = "user-prompt",
+                role = "user",
+                content = "Question"
+            )
+            val assistantMessage = AcpSessionService.ChatMessage(
+                id = "assistant-empty-loading",
+                role = "assistant",
+                content = ""
+            )
+
+            renderConversation(panel, listOf(userMessage, assistantMessage), isLoading = true)
+            layoutRecursively(host)
+
+            val assistantRow = messageRowComponent(panel, "assistant-empty-loading")
+            val footer = findByClassName(assistantRow, "MessagePromptFooter")
+            val markdownPane = findByClassName(assistantRow, "MarkdownPane")
+
+            assertNotNull(footer)
+            assertNull(markdownPane)
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
     fun testAssistantRunningPromptStatusShowsCancelActionInFooter() {
         var cancelled = false
         val card = instantiateMessageCard(
@@ -867,6 +985,32 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
 
             assertSame(firstComponent, secondComponent)
             assertEquals("Hello again", renderedMessage.content)
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testConversationRenderReusesPrecreatedAssistantRowWhenFirstContentArrives() {
+        val disposable = Disposer.newDisposable()
+        val panel = ChatViewPanel(project, disposable)
+        try {
+            val initialMessage = AcpSessionService.ChatMessage(
+                id = "assistant-precreated",
+                role = "assistant",
+                content = ""
+            )
+            renderConversation(panel, listOf(initialMessage), isLoading = true)
+
+            val updatedMessage = initialMessage.copy(content = "First assistant reply")
+            renderConversation(panel, listOf(updatedMessage), isLoading = true)
+
+            val controllerComponent = messageRowComponent(panel, "assistant-precreated")
+            val mountedComponent = mountedMessageRowComponent(panel, 0)
+            val markdownPane = findByClassName(controllerComponent, "MarkdownPane") as javax.swing.JEditorPane
+
+            assertEquals(1, mountedMessageRows(panel).size)
+            assertSame(controllerComponent, mountedComponent)
+            assertTrue(markdownPane.text.contains("First assistant reply"))
         } finally {
             Disposer.dispose(disposable)
         }
@@ -1136,6 +1280,24 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         return componentField.get(controller) as javax.swing.JComponent
     }
 
+    private fun mountedMessageRows(panel: ChatViewPanel): List<javax.swing.JComponent> {
+        val messagePanel = panel.javaClass.getDeclaredField("messagePanel").apply {
+            isAccessible = true
+        }.get(panel) as JPanel
+        return messagePanel.components.filterIsInstance<javax.swing.JComponent>()
+            .filterNot { it === spacerComponent(panel) }
+    }
+
+    private fun mountedMessageRowComponent(panel: ChatViewPanel, rowIndex: Int): javax.swing.JComponent {
+        return mountedMessageRows(panel)[rowIndex]
+    }
+
+    private fun spacerComponent(panel: ChatViewPanel): JPanel {
+        return panel.javaClass.getDeclaredField("spacerComponent").apply {
+            isAccessible = true
+        }.get(panel) as JPanel
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun expandedThoughts(panel: ChatViewPanel): MutableSet<String> {
         return panel.javaClass.getDeclaredField("expandedThoughts").apply {
@@ -1148,13 +1310,6 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             isAccessible = true
         }.get(panel) as Map<*, *>
         return cards[requestId] as javax.swing.JComponent
-    }
-
-    private fun mountedMessageRowComponent(panel: ChatViewPanel, rowIndex: Int): javax.swing.JComponent {
-        val messagePanel = panel.javaClass.getDeclaredField("messagePanel").apply {
-            isAccessible = true
-        }.get(panel) as JPanel
-        return messagePanel.components[rowIndex] as javax.swing.JComponent
     }
 
     private fun permissionMessage(

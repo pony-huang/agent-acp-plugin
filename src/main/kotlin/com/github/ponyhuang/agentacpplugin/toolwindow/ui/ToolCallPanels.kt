@@ -10,12 +10,14 @@ import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.diff.tools.simple.SimpleDiffTool
 import com.intellij.diff.util.DiffUserDataKeys
 import com.intellij.diff.util.DiffUserDataKeysEx
+import com.intellij.ide.HelpTooltip
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vcs.FilePath
 import com.intellij.openapi.vcs.LocalFilePath
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -114,7 +116,7 @@ internal class ToolCallRow(
         val primaryLocation = toolCall.locations.firstOrNull()
         val navigableFile = primaryLocation?.takeIf { toolCall.kind == "read" }?.let { resolveNavigableFile(it.path) }
         updateTitle(toolCall, primaryLocation, navigableFile)
-        statusLabel.updateStatus(toolCall.status)
+        statusLabel.updateStatus(toolCall.status, toolCall.failureDetails ?: toolCall.contentSummary)
         openDiffLink.isVisible = toolCall.diffContents.isNotEmpty()
         detailsPanel.removeAll()
         currentDiffContents = toolCall.diffContents
@@ -285,9 +287,10 @@ internal class ToolStatusLabel(status: String) : JPanel(BorderLayout(JBUI.scale(
         add(statusIcon, BorderLayout.EAST)
     }
 
-    fun updateStatus(status: String) {
+    fun updateStatus(status: String, failureSummary: String? = null) {
         statusText.text = status.toDisplayLabel()
-        statusIcon.updateStatus(status)
+        statusIcon.updateStatus(status, failureSummary)
+        toolTipText = statusIcon.toolTipText
         revalidate()
         repaint()
     }
@@ -458,10 +461,11 @@ internal class ToolStatusIcon(status: String) : JBLabel() {
 
     override fun removeNotify() {
         animationTimer.stop()
+        HelpTooltip.dispose(this)
         super.removeNotify()
     }
 
-    fun updateStatus(status: String) {
+    fun updateStatus(status: String, failureSummary: String? = null) {
         shouldAnimate = status == "in_progress"
         if (shouldAnimate) {
             animationFrame = 0
@@ -473,6 +477,35 @@ internal class ToolStatusIcon(status: String) : JBLabel() {
             animationTimer.stop()
             icon = statusIconFor(status)
         }
+        updateFailedTooltip(status, failureSummary)
         repaint()
+    }
+
+    private fun updateFailedTooltip(status: String, failureSummary: String?) {
+        HelpTooltip.dispose(this)
+        toolTipText = null
+        if (status != "failed") {
+            return
+        }
+        val rawText = failureSummary?.takeIf { it.isNotBlank() } ?: return
+        val description = rawText
+            .let(::helpTooltipDescriptionFor)
+            ?: return
+        toolTipText = standardTooltipFor(rawText)
+        HelpTooltip()
+            .setTitle(status.toDisplayLabel())
+            .setDescription(description)
+            .installOn(this)
+    }
+
+    private fun helpTooltipDescriptionFor(text: String): String {
+        return StringUtil.escapeXmlEntities(text.trim())
+            .replace("\r\n", "\n")
+            .replace("\n\n", "<p>")
+            .replace("\n", "<br/>")
+    }
+
+    private fun standardTooltipFor(text: String): String {
+        return "<html>${helpTooltipDescriptionFor(text)}</html>"
     }
 }
