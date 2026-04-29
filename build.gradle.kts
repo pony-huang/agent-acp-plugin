@@ -1,7 +1,6 @@
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
-import org.gradle.api.tasks.testing.logging.TestLogEvent
 
 plugins {
     id("java") // Java support
@@ -157,12 +156,6 @@ tasks {
         dependsOn(patchChangelog)
     }
 }
-
-val requestedTestPatterns = gradle.startParameter.taskRequests
-    .flatMap { it.args }
-    .windowed(size = 2, step = 1, partialWindows = false)
-    .filter { it.firstOrNull() == "--tests" }
-    .mapNotNull { it.getOrNull(1) }
 
 intellijPlatformTesting {
     runIde {

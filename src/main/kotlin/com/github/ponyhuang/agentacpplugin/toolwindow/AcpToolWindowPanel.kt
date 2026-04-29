@@ -69,7 +69,20 @@ class AcpToolWindowPanel(
     private val agentNotifier = AgentNotifier()
 
     private val conversationPanel = ChatViewPanel(project, disposable)
+
+    // Initialize userInputPanel with linkage mechanism (callbacks set in init block)
+    private val userInputPanel = UserInputPanel(
+        project = project,
+        agentItems = buildAgentItems(),
+        agentNotifier = agentNotifier,
+        onConnectionToggle = {},
+        onModelChanged = { model -> logger.info("Model changed: ${model.id}") },
+        onPlanChanged = { plan -> logger.info("Plan changed: ${plan.id}") }
+    ).apply {
+        minimumSize = Dimension(0, JBUI.scale(140))
+    }
     private val conversationChatViewToolbar = ChatViewToolbar(
+        project = project,
         isLoading = { isComposerBusy() },
         isListingSessions = { isListingSessions.value },
         hasSelectedAgent = { userInputPanel.selectedAgent() != null },
@@ -83,18 +96,6 @@ class AcpToolWindowPanel(
         isSessionConnected = { sessionService.isConnected.value },
         getComposerState = { currentComposerState() }
     )
-
-    // Initialize userInputPanel with linkage mechanism (callbacks set in init block)
-    private val userInputPanel = UserInputPanel(
-        project = project,
-        agentItems = buildAgentItems(),
-        agentNotifier = agentNotifier,
-        onConnectionToggle = {},
-        onModelChanged = { model -> logger.info("Model changed: ${model.id}") },
-        onPlanChanged = { plan -> logger.info("Plan changed: ${plan.id}") }
-    ).apply {
-        minimumSize = Dimension(0, JBUI.scale(140))
-    }
 
     private val controller = userInputPanel
     private var connectedAgentId: String? = null
@@ -327,7 +328,7 @@ class AcpToolWindowPanel(
         }
         splitter.setHonorComponentsMinimumSize(true)
         setContent(splitter)
-        toolbar = conversationChatViewToolbar
+        toolbar = conversationChatViewToolbar.component
     }
 
     internal fun showSessionPopup() {
@@ -538,7 +539,7 @@ class AcpToolWindowPanel(
             .setCancelOnClickOutside(true)
             .setCancelOnOtherWindowOpen(true)
             .createPopup()
-        sessionsPopup?.showUnderneathOf(conversationChatViewToolbar)
+        sessionsPopup?.showUnderneathOf(conversationChatViewToolbar.component)
     }
 
     internal fun buildLoadedSessionNotificationContent(
