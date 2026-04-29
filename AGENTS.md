@@ -43,6 +43,16 @@ Use Java/Kotlin toolchain 21 as configured in Gradle.
 - **IntelliJ SDK Code Samples**: https://github.com/JetBrains/intellij-sdk-code-samples - Official JetBrains collection of plugin development examples covering action, dialog, toolwindow, projectWizard, and more.
 - Use local IntelliJ source and bundled examples as the primary reference for IntelliJ Plugin API behavior in this repository.
 
+## Debugging Workflow
+- For non-trivial bugs, prefer a layered debugging approach instead of speculative fixes.
+- First separate the problem into likely layers, such as: event ingestion, service state mutation, state propagation, derived-state mapping, and final rendering/presentation.
+- Add focused logs at the boundary between those layers, reproduce once, and compare the same entity across layers using stable identifiers such as message id, session id, tool call id, file path, content length, entry count, or status.
+- When mutating shared state, prefer atomic update APIs such as `MutableStateFlow.update { ... }`; avoid read-transform-write patterns on shared `.value` state when updates can interleave.
+- If logs show downstream layers receive correct final data but the user-visible result is still wrong, inspect filtering, selection, and presentation rules before changing upstream transport or session logic.
+- Keep narrow rules local to the component or adapter that owns them; avoid broad message-level or global filtering unless the behavior is truly global.
+- Add a regression test after identifying the failing layer, usually near the layer that actually contained the bug.
+- Reference: `docs/DEBUGGING_WORKFLOW_GUIDE.md`
+
 ## Testing Guidelines
 - Test framework is IntelliJ Platform test framework with JUnit4 (`BasePlatformTestCase`).
 - Name tests as `test...` methods (for example, `testRename`, `testProjectService`).
