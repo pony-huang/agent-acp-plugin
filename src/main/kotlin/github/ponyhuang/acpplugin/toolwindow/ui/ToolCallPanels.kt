@@ -55,6 +55,8 @@ internal class ToolCallRow(
     private val detailsPanel = JPanel()
     private val diffContainer = JPanel()
     private var currentDiffContents: List<AcpSessionService.ToolCallDiffInfo> = emptyList()
+    private var currentTitlePresentation: TitlePresentation? = null
+    private var currentStatusPresentation: StatusPresentation? = null
     private var titleLinkAction: ActionListener? = null
 
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
@@ -115,31 +117,66 @@ internal class ToolCallRow(
     fun update(toolCall: AcpSessionService.ToolCallInfo) {
         val primaryLocation = toolCall.locations.firstOrNull()
         val navigableFile = primaryLocation?.takeIf { toolCall.kind == "read" }?.let { resolveNavigableFile(it.path) }
-        updateTitle(toolCall, primaryLocation, navigableFile)
-        statusLabel.updateStatus(toolCall.status, toolCall.failureDetails ?: toolCall.contentSummary)
-        openDiffLink.isVisible = toolCall.diffContents.isNotEmpty()
-        detailsPanel.removeAll()
-        currentDiffContents = toolCall.diffContents
-        rebuildDiffPreviews(emptyList())
+        val titlePresentation = buildTitlePresentation(toolCall, primaryLocation, navigableFile)
+        if (titlePresentation != currentTitlePresentation) {
+            applyTitlePresentation(titlePresentation)
+            currentTitlePresentation = titlePresentation
+        }
+
+        val statusPresentation = StatusPresentation(toolCall.status, toolCall.failureDetails ?: toolCall.contentSummary)
+        if (statusPresentation != currentStatusPresentation) {
+            statusLabel.updateStatus(statusPresentation.status, statusPresentation.summary)
+            currentStatusPresentation = statusPresentation
+        }
+
+        val hasDiffs = toolCall.diffContents.isNotEmpty()
+        if (openDiffLink.isVisible != hasDiffs) {
+            openDiffLink.isVisible = hasDiffs
+        }
+        if (toolCall.diffContents != currentDiffContents) {
+            currentDiffContents = toolCall.diffContents
+            if (diffContainer.isVisible) {
+                rebuildDiffPreviews(toolCall.diffContents)
+            }
+        }
         revalidate()
         repaint()
     }
 
-    private fun updateTitle(
+    private fun buildTitlePresentation(
         toolCall: AcpSessionService.ToolCallInfo,
         primaryLocation: AcpSessionService.ToolCallLocationInfo?,
         navigableFile: VirtualFile?
-    ) {
+    ): TitlePresentation {
         val kindDisplay = toolKindDisplay(toolCall.kind)
-        titleLabel.icon = toolKindIcon(toolCall.kind)
-        if (toolCall.kind == "read" && primaryLocation != null && navigableFile != null) {
+        val icon = toolKindIcon(toolCall.kind)
+        return if (toolCall.kind == "read" && primaryLocation != null && navigableFile != null) {
+            TitlePresentation(
+                icon = icon,
+                labelText = kindDisplay,
+                linkText = linkTextFor(primaryLocation, navigableFile),
+                navigationTarget = NavigationTarget(primaryLocation, navigableFile)
+            )
+        } else {
+            TitlePresentation(
+                icon = icon,
+                labelText = buildTitleText(toolCall.kind, toolCall.title),
+                linkText = null,
+                navigationTarget = null
+            )
+        }
+    }
+
+    private fun applyTitlePresentation(presentation: TitlePresentation) {
+        titleLabel.icon = presentation.icon
+        if (presentation.navigationTarget != null && presentation.linkText != null) {
             titleLabel.isVisible = true
-            titleLabel.text = kindDisplay
+            titleLabel.text = presentation.labelText
             titleLink.isVisible = true
-            titleLink.text = linkTextFor(primaryLocation, navigableFile)
+            titleLink.text = presentation.linkText
             titleLinkAction?.let(titleLink::removeActionListener)
             titleLinkAction = ActionListener {
-                navigateTo(primaryLocation, navigableFile)
+                navigateTo(presentation.navigationTarget.location, presentation.navigationTarget.file)
             }
             titleLink.addActionListener(titleLinkAction)
         } else {
@@ -147,7 +184,7 @@ internal class ToolCallRow(
             titleLinkAction = null
             titleLink.isVisible = false
             titleLabel.isVisible = true
-            titleLabel.text = buildTitleText(toolCall.kind, toolCall.title)
+            titleLabel.text = presentation.labelText
         }
     }
 
@@ -273,6 +310,23 @@ internal class ToolCallRow(
     }
 
     override fun dispose() = Unit
+
+    private data class NavigationTarget(
+        val location: AcpSessionService.ToolCallLocationInfo,
+        val file: VirtualFile
+    )
+
+    private data class TitlePresentation(
+        val icon: javax.swing.Icon,
+        val labelText: String,
+        val linkText: String?,
+        val navigationTarget: NavigationTarget?
+    )
+
+    private data class StatusPresentation(
+        val status: String,
+        val summary: String?
+    )
 }
 
 internal class ToolStatusLabel(status: String) : JPanel(BorderLayout(JBUI.scale(4), 0)) {
@@ -488,9 +542,7 @@ internal class ToolStatusIcon(status: String) : JBLabel() {
             return
         }
         val rawText = failureSummary?.takeIf { it.isNotBlank() } ?: return
-        val description = rawText
-            .let(::helpTooltipDescriptionFor)
-            ?: return
+        val description = helpTooltipDescriptionFor(rawText)
         toolTipText = standardTooltipFor(rawText)
         HelpTooltip()
             .setTitle(status.toDisplayLabel())

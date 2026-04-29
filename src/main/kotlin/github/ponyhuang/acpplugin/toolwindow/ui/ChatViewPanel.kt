@@ -149,8 +149,6 @@ class ChatViewPanel(
             if (reconciled) {
                 syncPermissionCardRegistry()
                 messagePanel.revalidate()
-                messageScrollPane.viewport.revalidate()
-                messageScrollPane.revalidate()
                 messagePanel.repaint()
                 restoreScrollSnapshot(scrollSnapshot, requestedVersion)
                 refreshPermissionCards(sessionService.pendingPermissionRequests.value)
@@ -324,8 +322,6 @@ class ChatViewPanel(
                 }
 
                 messagePanel.revalidate()
-                messageScrollPane.viewport.revalidate()
-                messageScrollPane.revalidate()
                 messagePanel.repaint()
 
                 val settledModel = scrollBar.model

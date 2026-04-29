@@ -2,9 +2,13 @@ package github.ponyhuang.acpplugin.toolwindow.ui
 
 import github.ponyhuang.acpplugin.services.AcpSessionService
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.util.ui.JBUI
 import java.awt.Container
+import javax.swing.Box
 import javax.swing.JComponent
 import javax.swing.JLabel
+import javax.swing.JPanel
 
 class PlanEntriesPanelTest : BasePlatformTestCase() {
 
@@ -145,6 +149,41 @@ class PlanEntriesPanelTest : BasePlatformTestCase() {
         assertNotNull(findLabel(popupContent, "in progress | high"))
         assertNotNull(findLabel(popupContent, "Render panel"))
         assertNotNull(findLabel(popupContent, "pending | medium"))
+    }
+
+    fun testPopupContentUsesCompactEntrySpacingAndPadding() {
+        val panel = PlanEntriesPanel()
+        panel.updatePlanEntries(
+            listOf(
+                AcpSessionService.SessionPlanItem(
+                    content = "Inspect files",
+                    priority = "high",
+                    status = "in_progress"
+                ),
+                AcpSessionService.SessionPlanItem(
+                    content = "Render panel",
+                    priority = "medium",
+                    status = "pending"
+                )
+            )
+        )
+
+        val popupContent = panel.createPopupContentForTest() as JBScrollPane
+        val entryListPanel = popupContent.viewport.view as JPanel
+        val entryRows = entryListPanel.components.filter { it.javaClass.simpleName == "PlanEntryRow" }
+        val spacer = entryListPanel.components.filterIsInstance<Box.Filler>().single()
+        val titleLabel = findLabel(entryRows.first() as Container, "Inspect files")
+
+        assertEquals(2, entryRows.size)
+        assertEquals(JBUI.scale(4), spacer.preferredSize.height)
+        assertNotNull(titleLabel)
+        val rowInsets = (entryRows.first() as JComponent).border.getBorderInsets(entryRows.first() as JComponent)
+        assertEquals(JBUI.scale(6), rowInsets.top)
+        assertEquals(JBUI.scale(6), rowInsets.bottom)
+        assertEquals(JBUI.scale(8), rowInsets.left)
+        assertEquals(JBUI.scale(8), rowInsets.right)
+        val titleInsets = titleLabel!!.border.getBorderInsets(titleLabel)
+        assertEquals(JBUI.scale(3), titleInsets.bottom)
     }
 
     private inline fun <reified T> readComponent(panel: PlanEntriesPanel, fieldName: String): T {

@@ -10,7 +10,6 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
-import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JPanel
 import javax.swing.Timer
@@ -37,7 +36,7 @@ internal class MessageCardPanel(
     private val headerLabel = JBLabel()
     private val bodyPanel = JPanel()
     private var footer: MessagePromptFooter? = null
-    private val entryViews = mutableListOf<MessageEntryView>()
+    private val entrySlots = mutableListOf<EntrySlot>()
 
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
@@ -73,7 +72,8 @@ internal class MessageCardPanel(
     }
 
     fun collectPermissionCards(target: MutableMap<String, PermissionRequestCardPanel>) {
-        entryViews.forEach { entryView ->
+        entrySlots.forEach { entrySlot ->
+            val entryView = entrySlot.view
             if (entryView is PermissionRequestEntryView) {
                 target[entryView.currentRequestId] = entryView.card
             }
@@ -98,21 +98,20 @@ internal class MessageCardPanel(
         val nextEntries = message.entries.ifEmpty { message.legacyRenderableEntries() }
         val shouldRebuildBody =
             forceRebuildBody ||
-                entryViews.size != nextEntries.size ||
-                entryViews.zip(nextEntries).any { (view, entry) -> !view.canUpdate(entry) }
+                entrySlots.size != nextEntries.size ||
+                entrySlots.zip(nextEntries).any { (slot, entry) -> slot.structureKey != structureKeyFor(entry) }
 
         if (shouldRebuildBody) {
             rebuildBody(nextEntries, thoughtExpanded, onThoughtToggled)
         } else {
-            entryViews.zip(nextEntries).forEach { (view, entry) ->
-                view.update(entry, thoughtExpanded)
+            entrySlots.zip(nextEntries).forEach { (slot, entry) ->
+                slot.view.update(entry, thoughtExpanded)
             }
         }
 
         updateFooter(promptState)
         bodyPanel.revalidate()
         chrome.contentPanel.revalidate()
-        revalidate()
         repaint()
     }
 
@@ -121,16 +120,19 @@ internal class MessageCardPanel(
         thoughtExpanded: Boolean,
         onThoughtToggled: (Boolean) -> Unit
     ) {
-        entryViews.forEach(MessageEntryView::dispose)
+        entrySlots.forEach { it.view.dispose() }
         bodyPanel.removeAll()
-        entryViews.clear()
+        entrySlots.clear()
         entries.forEachIndexed { index, entry ->
             val entryView = createEntryView(entry, thoughtExpanded, onThoughtToggled)
-            entryViews += entryView
-            bodyPanel.add(entryView.component)
-            if (index != entries.lastIndex) {
-                bodyPanel.add(Box.createVerticalStrut(JBUI.scale(8)))
-            }
+            val slot = EntrySlot(
+                structureKey = structureKeyFor(entry),
+                view = entryView,
+                baseBorder = entryView.component.border
+            )
+            entrySlots += slot
+            updateEntrySpacing(slot, hasBottomGap = index != entries.lastIndex)
+            bodyPanel.add(slot.view.component)
         }
     }
 
@@ -161,8 +163,8 @@ internal class MessageCardPanel(
     }
 
     fun dispose() {
-        entryViews.forEach(MessageEntryView::dispose)
-        entryViews.clear()
+        entrySlots.forEach { it.view.dispose() }
+        entrySlots.clear()
     }
 
     private fun updateFooter(promptState: MessagePromptState?) {
@@ -186,6 +188,29 @@ internal class MessageCardPanel(
             }
         }
     }
+
+    private fun structureKeyFor(entry: AcpSessionService.MessageEntry): String {
+        return when (entry) {
+            is AcpSessionService.MessageEntry.Content -> "content"
+            is AcpSessionService.MessageEntry.Thought -> "thought"
+            is AcpSessionService.MessageEntry.ToolCall -> "tool:${entry.toolCall.toolCallId}"
+            is AcpSessionService.MessageEntry.PermissionRequest -> "permission:${entry.request.requestId}"
+        }
+    }
+
+    private fun updateEntrySpacing(slot: EntrySlot, hasBottomGap: Boolean) {
+        slot.view.component.border = if (hasBottomGap) {
+            JBUI.Borders.compound(slot.baseBorder, JBUI.Borders.emptyBottom(8))
+        } else {
+            slot.baseBorder
+        }
+    }
+
+    private data class EntrySlot(
+        val structureKey: String,
+        val view: MessageEntryView,
+        val baseBorder: javax.swing.border.Border?
+    )
 
     private fun backgroundForRole(role: String): JBColor {
         val base = UIUtil.getPanelBackground()

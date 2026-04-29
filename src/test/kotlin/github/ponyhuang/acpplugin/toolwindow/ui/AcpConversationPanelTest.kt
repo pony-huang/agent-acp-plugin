@@ -15,6 +15,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.lang.reflect.Constructor
 import java.awt.Component
@@ -354,6 +355,123 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             assertSame(initialRow, updatedRow)
             assertTrue("row=${updatedRow.bounds} pref=${updatedRow.preferredSize}", updatedRow.height > initialHeight)
             assertTrue("markdown=${markdownPane.bounds}", markdownPane.height > initialMarkdownHeight)
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testThoughtPanelLimitsExpandedHeightWithInternalScroll() {
+        val longThought = List(40) { index ->
+            "Thought line ${index + 1} should keep the expanded panel readable without growing the full message card indefinitely."
+        }.joinToString("\n\n")
+        val thoughtPanel = instantiatePrivatePanel(
+            "github.ponyhuang.acpplugin.toolwindow.ui.ThoughtPanel",
+            arrayOf(String::class.java, java.lang.Boolean.TYPE, Function1::class.java),
+            arrayOf(longThought, true, noOpThoughtToggle)
+        )
+
+        val host = JPanel(BorderLayout()).apply {
+            setSize(360, 700)
+            add(thoughtPanel, BorderLayout.NORTH)
+        }
+
+        layoutRecursively(host)
+
+        val scrollPane = thoughtPanel.javaClass.getDeclaredField("scrollPane").apply {
+            isAccessible = true
+        }.get(thoughtPanel) as JBScrollPane
+        val markdownPane = findByClassName(thoughtPanel, "MarkdownPane") as javax.swing.JComponent
+
+        assertTrue(scrollPane.isVisible)
+        assertTrue(scrollPane.height <= JBUI.scale(240))
+        assertTrue(markdownPane.preferredSize.height > scrollPane.height)
+        assertEquals(JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER, scrollPane.horizontalScrollBarPolicy)
+    }
+
+    fun testConversationRenderReusesThoughtPanelForThoughtTextGrowth() {
+        val disposable = Disposer.newDisposable()
+        val panel = ChatViewPanel(project, disposable)
+        try {
+            val initialMessage = AcpSessionService.ChatMessage(
+                id = "assistant-thought-grow",
+                role = "assistant",
+                content = "Answer",
+                entries = listOf(
+                    AcpSessionService.MessageEntry.Thought("Short thought"),
+                    AcpSessionService.MessageEntry.Content("Answer")
+                )
+            )
+            renderConversation(panel, listOf(initialMessage))
+
+            val firstRow = messageRowComponent(panel, "assistant-thought-grow")
+            val firstThoughtPanel = findByClassName(firstRow, "ThoughtPanel")
+
+            val updatedMessage = initialMessage.copy(
+                entries = listOf(
+                    AcpSessionService.MessageEntry.Thought("Short thought with additional streamed detail that should reuse the same panel instance."),
+                    AcpSessionService.MessageEntry.Content("Answer")
+                )
+            )
+            renderConversation(panel, listOf(updatedMessage))
+
+            val secondRow = messageRowComponent(panel, "assistant-thought-grow")
+            val secondThoughtPanel = findByClassName(secondRow, "ThoughtPanel")
+
+            assertSame(firstRow, secondRow)
+            assertSame(firstThoughtPanel, secondThoughtPanel)
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testConversationRenderReusesToolCallRowForStatusUpdate() {
+        val disposable = Disposer.newDisposable()
+        val panel = ChatViewPanel(project, disposable)
+        try {
+            val initialMessage = AcpSessionService.ChatMessage(
+                id = "assistant-tool-stable",
+                role = "assistant",
+                content = "Working",
+                entries = listOf(
+                    AcpSessionService.MessageEntry.ToolCall(
+                        AcpSessionService.ToolCallInfo(
+                            toolCallId = "tool-stable",
+                            title = "Search workspace",
+                            status = "in_progress",
+                            kind = "search",
+                            contentSummary = "Searching"
+                        )
+                    ),
+                    AcpSessionService.MessageEntry.Content("Working")
+                )
+            )
+            renderConversation(panel, listOf(initialMessage))
+
+            val firstRow = messageRowComponent(panel, "assistant-tool-stable")
+            val firstToolCallRow = findByClassName(firstRow, "ToolCallRow")
+
+            val updatedMessage = initialMessage.copy(
+                content = "Done",
+                entries = listOf(
+                    AcpSessionService.MessageEntry.ToolCall(
+                        AcpSessionService.ToolCallInfo(
+                            toolCallId = "tool-stable",
+                            title = "Search workspace",
+                            status = "completed",
+                            kind = "search",
+                            contentSummary = "Done"
+                        )
+                    ),
+                    AcpSessionService.MessageEntry.Content("Done")
+                )
+            )
+            renderConversation(panel, listOf(updatedMessage))
+
+            val secondRow = messageRowComponent(panel, "assistant-tool-stable")
+            val secondToolCallRow = findByClassName(secondRow, "ToolCallRow")
+
+            assertSame(firstRow, secondRow)
+            assertSame(firstToolCallRow, secondToolCallRow)
         } finally {
             Disposer.dispose(disposable)
         }

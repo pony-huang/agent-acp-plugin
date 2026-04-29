@@ -24,6 +24,10 @@ import javax.swing.JPanel
 import javax.swing.Timer
 
 class PlanEntriesPanel : JPanel(BorderLayout()) {
+    private val popupItemGap = JBUI.scale(4)
+    private val popupItemVerticalPadding = JBUI.scale(6)
+    private val popupItemHorizontalPadding = JBUI.scale(8)
+    private val popupStatusTopGap = JBUI.scale(3)
 
     private val headerPanel = JPanel(BorderLayout(JBUI.scale(16), 0)).apply {
         isOpaque = false
@@ -192,9 +196,16 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
             border = JBUI.Borders.empty(8)
         }
         entries.forEachIndexed { index, entry ->
-            entryListPanel.add(PlanEntryRow(entry))
+            entryListPanel.add(
+                PlanEntryRow(
+                    entry = entry,
+                    verticalPadding = popupItemVerticalPadding,
+                    horizontalPadding = popupItemHorizontalPadding,
+                    statusTopGap = popupStatusTopGap
+                )
+            )
             if (index != entries.lastIndex) {
-                entryListPanel.add(Box.createVerticalStrut(JBUI.scale(8)))
+                entryListPanel.add(Box.createVerticalStrut(popupItemGap))
             }
         }
 
@@ -250,16 +261,21 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
     }
 }
 
-private class PlanEntryRow(entry: AcpSessionService.SessionPlanItem) : JBPanel<PlanEntryRow>(BorderLayout()) {
+private class PlanEntryRow(
+    entry: AcpSessionService.SessionPlanItem,
+    verticalPadding: Int,
+    horizontalPadding: Int,
+    statusTopGap: Int
+) : JBPanel<PlanEntryRow>(BorderLayout()) {
     init {
         isOpaque = true
         background = UIUtil.getPanelBackground()
-        border = JBUI.Borders.empty(8)
+        border = JBUI.Borders.empty(verticalPadding, horizontalPadding)
 
         add(
             JBLabel(entry.content).apply {
                 foreground = UIUtil.getLabelForeground()
-                border = JBUI.Borders.emptyBottom(4)
+                border = JBUI.Borders.emptyBottom(statusTopGap)
             },
             BorderLayout.CENTER
         )
