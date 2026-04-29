@@ -32,7 +32,6 @@ import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import javax.swing.BorderFactory
 import javax.swing.Box
-import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.Timer
@@ -65,7 +64,7 @@ internal class ToolCallRow(
 
         val chrome = nestedTemplatePanel()
         add(chrome, BorderLayout.CENTER)
-        chrome.contentPanel.layout = BoxLayout(chrome.contentPanel, BoxLayout.Y_AXIS)
+        chrome.contentPanel.layout = BorderLayout()
 
         chrome.contentPanel.add(
             JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
@@ -101,41 +100,25 @@ internal class ToolCallRow(
                 add(statusLabel, BorderLayout.EAST)
                 alignmentX = LEFT_ALIGNMENT
                 maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
-            }
+            },
+            BorderLayout.CENTER
         )
-
-        detailsPanel.layout = BoxLayout(detailsPanel, BoxLayout.Y_AXIS)
         detailsPanel.isOpaque = false
-        chrome.contentPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-        chrome.contentPanel.add(detailsPanel)
-
-        diffContainer.layout = BoxLayout(diffContainer, BoxLayout.Y_AXIS)
+        detailsPanel.isVisible = false
         diffContainer.isOpaque = false
-        diffContainer.alignmentX = LEFT_ALIGNMENT
-        chrome.contentPanel.add(Box.createVerticalStrut(JBUI.scale(8)))
-        chrome.contentPanel.add(diffContainer)
+        diffContainer.isVisible = false
         update(toolCall)
     }
 
     fun update(toolCall: AcpSessionService.ToolCallInfo) {
-        val hidesBodyContent = toolCall.kind == "edit"
         val primaryLocation = toolCall.locations.firstOrNull()
         val navigableFile = primaryLocation?.takeIf { toolCall.kind == "read" }?.let { resolveNavigableFile(it.path) }
         updateTitle(toolCall, primaryLocation, navigableFile)
         statusLabel.updateStatus(toolCall.status)
         openDiffLink.isVisible = toolCall.diffContents.isNotEmpty()
         detailsPanel.removeAll()
-        val detailComponents = buildList {
-            if (!hidesBodyContent && !(toolCall.kind == "read" && primaryLocation != null && navigableFile != null)) {
-                primaryLocation?.let { add(createLocationComponent(toolCall.kind, it)) }
-            }
-        }
-        detailComponents.forEachIndexed { index, component ->
-            component.border = if (index == 0) JBUI.Borders.empty() else JBUI.Borders.emptyTop(2)
-            detailsPanel.add(component)
-        }
         currentDiffContents = toolCall.diffContents
-        rebuildDiffPreviews(if (hidesBodyContent) emptyList() else toolCall.diffContents)
+        rebuildDiffPreviews(emptyList())
         revalidate()
         repaint()
     }
@@ -146,6 +129,7 @@ internal class ToolCallRow(
         navigableFile: VirtualFile?
     ) {
         val kindDisplay = toolKindDisplay(toolCall.kind)
+        titleLabel.icon = toolKindIcon(toolCall.kind)
         if (toolCall.kind == "read" && primaryLocation != null && navigableFile != null) {
             titleLabel.isVisible = true
             titleLabel.text = kindDisplay
@@ -199,28 +183,13 @@ internal class ToolCallRow(
 
     private fun buildTitleText(kind: String?, title: String): String {
         val kindDisplay = toolKindDisplay(kind)
-        val kindTitleLabel = kindTitleLabel(kind)
+        val kindTitleLabel = kindLabel(kind)
         return if (title.startsWith("$kindTitleLabel ", ignoreCase = true)) {
             "$kindDisplay ${title.drop(kindTitleLabel.length).trimStart()}"
         } else if (title.equals(kindTitleLabel, ignoreCase = true)) {
             kindDisplay
         } else {
             "$kindDisplay $title"
-        }
-    }
-
-    private fun kindTitleLabel(kind: String?): String {
-        return when (kind) {
-            "read" -> MyBundle.message("toolkind.read")
-            "edit" -> MyBundle.message("toolkind.edit")
-            "delete" -> MyBundle.message("toolkind.delete")
-            "move" -> MyBundle.message("toolkind.move")
-            "search" -> MyBundle.message("toolkind.search")
-            "execute" -> MyBundle.message("toolkind.execute")
-            "think" -> MyBundle.message("toolkind.think")
-            "fetch" -> MyBundle.message("toolkind.fetch")
-            "switch_mode" -> MyBundle.message("toolkind.switchMode")
-            else -> MyBundle.message("toolkind.tool")
         }
     }
 

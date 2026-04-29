@@ -98,22 +98,25 @@ internal fun renderHtml(text: String): String {
 }
 
 internal fun toolKindDisplay(kind: String?): String {
-    val emoji = when (kind) {
-        "read" -> "\uD83D\uDCD6"
-        "edit" -> "\u270F\uFE0F"
-        "delete" -> "\uD83D\uDDD1\uFE0F"
-        "move" -> "\uD83D\uDCE6"
-        "search" -> "\uD83D\uDD0D"
-        "execute" -> "\u25B6\uFE0F"
-        "think" -> "\uD83E\uDDE0"
-        "fetch" -> "\uD83C\uDF10"
-        "switch_mode" -> "\uD83D\uDD00"
-        else -> "\uD83D\uDD27"
-    }
-    return "$emoji ${kindLabel(kind)}"
+    return kindLabel(kind)
 }
 
-private fun kindLabel(kind: String?): String {
+internal fun toolKindIcon(kind: String?): Icon {
+    return when (kind) {
+        "read" -> AllIcons.Actions.MenuOpen
+        "edit" -> AllIcons.Actions.Edit
+        "delete" -> AllIcons.Actions.GC
+        "move" -> AllIcons.Actions.MoveTo2
+        "search" -> AllIcons.Actions.Search
+        "execute" -> AllIcons.Actions.Execute
+        "think" -> AllIcons.Actions.IntentionBulb
+        "fetch" -> AllIcons.Nodes.PpWeb
+        "switch_mode" -> AllIcons.Actions.ChangeView
+        else -> AllIcons.General.GearPlain
+    }
+}
+
+internal fun kindLabel(kind: String?): String {
     return when (kind) {
         "read" -> MyBundle.message("toolkind.read")
         "edit" -> MyBundle.message("toolkind.edit")

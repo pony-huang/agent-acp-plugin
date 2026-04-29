@@ -428,7 +428,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertTrue(buttons.single().isEnabled)
     }
 
-    fun testToolCallRowUsesEmojiTitleAndStaticStatusIcon() {
+    fun testToolCallRowUsesKindIconAndStaticStatusIcon() {
         val row = instantiateToolCallRow(
             AcpSessionService.ToolCallInfo(
                 toolCallId = "tool-1",
@@ -438,10 +438,11 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "📖 Read file" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Read file" }
         val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
 
         assertNotNull(titleLabel)
+        assertEquals(AllIcons.Actions.MenuOpen, titleLabel!!.icon)
         assertEquals(AllIcons.General.InspectionsOK, statusIcon.icon)
         assertUsesTemplateChrome(row)
     }
@@ -456,13 +457,14 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "🔍 Search workspace" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Search workspace" }
         val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
         val animationTimer = statusIcon.javaClass.getDeclaredField("animationTimer").apply {
             isAccessible = true
         }
 
         assertNotNull(titleLabel)
+        assertEquals(AllIcons.Actions.Search, titleLabel!!.icon)
         assertEquals(AllIcons.Process.Step_1, statusIcon.icon)
         assertNotNull(animationTimer.get(statusIcon))
     }
@@ -497,11 +499,12 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titlePrefix = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "📖 Read" }
+        val titlePrefix = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Read" }
         val mainLinks = findAllByType(row, ActionLink::class.java).filter { it.text == "Main.kt" }
         val hiddenSummary = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "This content should stay hidden" }
 
         assertNotNull(titlePrefix)
+        assertEquals(AllIcons.Actions.MenuOpen, titlePrefix!!.icon)
         assertEquals(1, mainLinks.size)
         assertNull(hiddenSummary)
     }
@@ -517,13 +520,14 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "📖 Read file" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Read file" }
         val locationLink = findAllByType(row, ActionLink::class.java).firstOrNull { it.text == "missing/File.kt:3" }
         val locationLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "missing/File.kt:3" }
 
         assertNotNull(titleLabel)
+        assertEquals(AllIcons.Actions.MenuOpen, titleLabel!!.icon)
         assertNull(locationLink)
-        assertNotNull(locationLabel)
+        assertNull(locationLabel)
     }
 
     fun testNonRepeatedToolCallTitleRemainsIntact() {
@@ -536,9 +540,10 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "✏️ Edit Apply patch" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Edit Apply patch" }
 
         assertNotNull(titleLabel)
+        assertEquals(AllIcons.Actions.Edit, titleLabel!!.icon)
     }
 
     fun testEditToolCallRowHidesBodyContent() {
@@ -576,6 +581,40 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         } finally {
             row.javaClass.getMethod("dispose").invoke(row)
         }
+    }
+
+    fun testToolCallRowKeepsHiddenBodyPanelsOutOfConversation() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-hidden-body",
+                title = "Search workspace",
+                status = "completed",
+                kind = "search",
+                locations = listOf(locationInfo("src/Main.kt:12", "src/Main.kt", 12)),
+                diffContents = listOf(
+                    AcpSessionService.ToolCallDiffInfo(
+                        path = "src/Main.kt",
+                        oldText = "old text",
+                        newText = "new text"
+                    )
+                )
+            )
+        )
+
+        val detailsPanel = row.javaClass.getDeclaredField("detailsPanel").apply {
+            isAccessible = true
+        }.get(row) as JPanel
+        val diffContainer = row.javaClass.getDeclaredField("diffContainer").apply {
+            isAccessible = true
+        }.get(row) as JPanel
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Search workspace" }
+
+        assertNotNull(titleLabel)
+        assertEquals(AllIcons.Actions.Search, titleLabel!!.icon)
+        assertFalse(detailsPanel.isVisible)
+        assertFalse(diffContainer.isVisible)
+        assertEquals(0, detailsPanel.componentCount)
+        assertEquals(0, diffContainer.componentCount)
     }
 
     fun testDiffPreviewFactoryUsesDocumentContentForBothSidesWhenBaselineExists() {
