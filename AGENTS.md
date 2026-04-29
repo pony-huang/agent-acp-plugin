@@ -18,7 +18,7 @@ Use Java/Kotlin toolchain 21 as configured in Gradle.
 
 ## Coding Style & Naming Conventions
 - Language: Kotlin (JVM). Use 4-space indentation and keep code formatter-compatible with IntelliJ defaults.
-- Package prefix must remain `com.github.ponyhuang.agentacpplugin`.
+- Package prefix must remain `github.ponyhuang.acpplugin`.
 - Class/object names: `UpperCamelCase`; functions/variables: `lowerCamelCase`; constants: `UPPER_SNAKE_CASE`.
 - Keep services focused and project-scoped where appropriate (`@Service(Service.Level.PROJECT)`).
 - For ACP client work, prefer clear transport/session abstractions and keep Swing UI code separated from protocol/state logic.

@@ -1,6 +1,6 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
-    <id>com.github.ponyhuang.agentacpplugin</id>
+    <id>github.ponyhuang.acpplugin</id>
     <name>ACP Chat</name>
     <vendor>pony-huang</vendor>
 
@@ -8,14 +8,14 @@
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <postStartupActivity implementation="com.github.ponyhuang.agentacpplugin.startup.MyProjectActivity" />
-        <toolWindow factoryClass="com.github.ponyhuang.agentacpplugin.toolwindow.AcpToolWindowFactory" id="ACP Chat"/>
-        <applicationService serviceImplementation="com.github.ponyhuang.agentacpplugin.services.AcpAgentRegistryService"/>
-        <applicationService serviceImplementation="com.github.ponyhuang.agentacpplugin.services.AcpAgentInstallationService"/>
-        <applicationService serviceImplementation="com.github.ponyhuang.agentacpplugin.settings.AcpPluginSettings"/>
+        <postStartupActivity implementation="github.ponyhuang.acpplugin.startup.MyProjectActivity" />
+        <toolWindow factoryClass="github.ponyhuang.acpplugin.toolwindow.AcpToolWindowFactory" id="ACP Chat"/>
+        <applicationService serviceImplementation="github.ponyhuang.acpplugin.services.AcpAgentRegistryService"/>
+        <applicationService serviceImplementation="github.ponyhuang.acpplugin.services.AcpAgentInstallationService"/>
+        <applicationService serviceImplementation="github.ponyhuang.acpplugin.settings.AcpPluginSettings"/>
         <applicationConfigurable
                 parentId="tools"
-                instance="com.github.ponyhuang.agentacpplugin.settings.AcpSettingsConfigurable"
+                instance="github.ponyhuang.acpplugin.settings.AcpSettingsConfigurable"
                 id="ACPChatSettings"
                 displayName="ACP Chat"/>
     </extensions>
