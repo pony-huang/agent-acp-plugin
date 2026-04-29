@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
@@ -691,19 +692,32 @@ class AcpSessionService(private val project: Project) : Disposable {
             return
         }
 
-        val messages = _messages.value
-        if (messages.isNotEmpty() && messages.last().role == ROLE_USER) {
-            // Append to last user message
-            val lastMsg = messages.last()
-            val updatedMsg = lastMsg.copy(
-                content = lastMsg.content + content,
-                entries = appendTextEntry(lastMsg.entries, content, isThought = false)
-            )
-            _messages.value = messages.dropLast(1) + updatedMsg
-        } else {
-            // Create new user message (shouldn't happen normally)
-            addMessage(ROLE_USER, content)
+        var created = false
+        var targetMessageId: String? = null
+        var totalTextLength = 0
+        _messages.update { messages ->
+            if (messages.isNotEmpty() && messages.last().role == ROLE_USER) {
+                val lastMsg = messages.last()
+                val updatedContent = lastMsg.content + content
+                targetMessageId = lastMsg.id
+                totalTextLength = updatedContent.length
+                val updatedMsg = lastMsg.copy(
+                    content = updatedContent,
+                    entries = appendTextEntry(lastMsg.entries, content, isThought = false)
+                )
+                messages.dropLast(1) + updatedMsg
+            } else {
+                created = true
+                val newMessage = createMessage(ROLE_USER, content)
+                targetMessageId = newMessage.id
+                totalTextLength = newMessage.content.length
+                messages + newMessage
+            }
         }
+        logger.info(
+            "[AcpSessionService] User chunk applied: textLength=${content.length}, created=$created, " +
+                "targetMessageId=$targetMessageId, totalTextLength=$totalTextLength"
+        )
     }
 
     /**
@@ -711,19 +725,36 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     private fun handleAgentMessageChunk(update: SessionUpdate.AgentMessageChunk) {
         val content = renderMessageContent(update.content)
-        val messages = _messages.value
-        if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
-            // Append to last assistant message
-            val lastMsg = messages.last()
-            val updatedMsg = lastMsg.copy(
-                content = lastMsg.content + content,
-                entries = appendTextEntry(lastMsg.entries, content, isThought = false)
-            )
-            _messages.value = messages.dropLast(1) + updatedMsg
-        } else {
-            // Create new assistant message
-            addMessage(ROLE_ASSISTANT, content)
+        var created = false
+        var targetMessageId: String? = null
+        var totalTextLength = 0
+        var entryCount = 0
+        _messages.update { messages ->
+            if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
+                val lastMsg = messages.last()
+                val updatedEntries = appendTextEntry(lastMsg.entries, content, isThought = false)
+                val updatedContent = lastMsg.content + content
+                targetMessageId = lastMsg.id
+                totalTextLength = updatedContent.length
+                entryCount = updatedEntries.size
+                val updatedMsg = lastMsg.copy(
+                    content = updatedContent,
+                    entries = updatedEntries
+                )
+                messages.dropLast(1) + updatedMsg
+            } else {
+                created = true
+                val newMessage = createMessage(ROLE_ASSISTANT, content)
+                targetMessageId = newMessage.id
+                totalTextLength = newMessage.content.length
+                entryCount = newMessage.entries.size
+                messages + newMessage
+            }
         }
+        logger.info(
+            "[AcpSessionService] Agent message chunk applied: textLength=${content.length}, created=$created, " +
+                "targetMessageId=$targetMessageId, totalTextLength=$totalTextLength, entries=$entryCount"
+        )
     }
 
     /**
@@ -731,29 +762,40 @@ class AcpSessionService(private val project: Project) : Disposable {
      */
     private fun handleAgentThoughtChunk(update: SessionUpdate.AgentThoughtChunk) {
         val thought = renderMessageContent(update.content)
-        val messages = _messages.value
-        if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
-            // Append to last assistant message's thought
-            val lastMsg = messages.last()
-            val updatedMsg = lastMsg.copy(
-                thought = (lastMsg.thought ?: "") + thought,
-                entries = appendTextEntry(lastMsg.entries, thought, isThought = true)
-            )
-            _messages.value = messages.dropLast(1) + updatedMsg
-        } else {
-            // Create new assistant message with thought
-            addMessage(ROLE_ASSISTANT, "").let {
-                val messages = _messages.value
-                if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
-                    val lastMsg = messages.last()
-                    val updatedMsg = lastMsg.copy(
-                        thought = thought,
-                        entries = appendTextEntry(lastMsg.entries, thought, isThought = true)
-                    )
-                    _messages.value = messages.dropLast(1) + updatedMsg
-                }
+        var created = false
+        var targetMessageId: String? = null
+        var totalThoughtLength = 0
+        var entryCount = 0
+        _messages.update { messages ->
+            if (messages.isNotEmpty() && messages.last().role == ROLE_ASSISTANT) {
+                val lastMsg = messages.last()
+                val updatedEntries = appendTextEntry(lastMsg.entries, thought, isThought = true)
+                val updatedThought = (lastMsg.thought ?: "") + thought
+                targetMessageId = lastMsg.id
+                totalThoughtLength = updatedThought.length
+                entryCount = updatedEntries.size
+                val updatedMsg = lastMsg.copy(
+                    thought = updatedThought,
+                    entries = updatedEntries
+                )
+                messages.dropLast(1) + updatedMsg
+            } else {
+                created = true
+                val newMessage = createMessage(ROLE_ASSISTANT, "")
+                val updatedEntries = appendTextEntry(newMessage.entries, thought, isThought = true)
+                targetMessageId = newMessage.id
+                totalThoughtLength = thought.length
+                entryCount = updatedEntries.size
+                messages + newMessage.copy(
+                    thought = thought,
+                    entries = updatedEntries
+                )
             }
         }
+        logger.info(
+            "[AcpSessionService] Agent thought chunk applied: textLength=${thought.length}, created=$created, " +
+                "targetMessageId=$targetMessageId, totalThoughtLength=$totalThoughtLength, entries=$entryCount"
+        )
     }
 
     /**
@@ -799,73 +841,72 @@ class AcpSessionService(private val project: Project) : Disposable {
         val incomingDiffContents = extractDiffToolCallContent(update.content)
         updatedStatus?.let { trackToolCallStatus(toolCallId, it) }
 
-        // Update the tool call in messages
-        val messages = _messages.value
-        val updatedMessages = messages.map { msg ->
-            if (msg.toolCalls.any { it.toolCallId == toolCallId } ||
-                msg.entries.any { entry ->
-                    entry is MessageEntry.PermissionRequest && entry.request.toolCallId == toolCallId
-                }
-            ) {
-                val updatedToolCalls = msg.toolCalls.map { tc ->
-                    if (tc.toolCallId == toolCallId) {
-                        val nextKind = update.kind?.toUiValue() ?: tc.kind
-                        val nextStatus = updatedStatus ?: tc.status
-                        tc.copy(
-                            title = update.title ?: tc.title,
-                            kind = nextKind,
-                            status = nextStatus,
-                            locations = updatedLocations ?: tc.locations,
-                            contentSummary = mergeSummary(nextKind, updatedSummary, tc.contentSummary),
-                            failureDetails = mergeFailureDetails(
-                                nextStatus,
-                                failureDetailsFor(nextStatus, update.content, update.rawOutput),
-                                tc.failureDetails
-                            ),
-                            diffContents = mergeDiffContents(tc.diffContents, incomingDiffContents)
-                        )
-                    } else tc
-                }
-                val updatedEntries = msg.entries.map { entry ->
-                    when (entry) {
-                        is MessageEntry.ToolCall -> {
-                            if (entry.toolCall.toolCallId == toolCallId) {
-                                val nextKind = update.kind?.toUiValue() ?: entry.toolCall.kind
-                                val nextStatus = updatedStatus ?: entry.toolCall.status
-                                entry.copy(
-                                    toolCall = entry.toolCall.copy(
-                                        title = update.title ?: entry.toolCall.title,
-                                        kind = nextKind,
-                                        status = nextStatus,
-                                        locations = updatedLocations ?: entry.toolCall.locations,
-                                        contentSummary = mergeSummary(nextKind, updatedSummary, entry.toolCall.contentSummary),
-                                        failureDetails = mergeFailureDetails(
-                                            nextStatus,
-                                            failureDetailsFor(nextStatus, update.content, update.rawOutput),
-                                            entry.toolCall.failureDetails
-                                        ),
-                                        diffContents = mergeDiffContents(entry.toolCall.diffContents, incomingDiffContents)
-                                    )
-                                )
-                            } else {
-                                entry
-                            }
-                        }
-                        is MessageEntry.PermissionRequest -> {
-                            val updatedTitle = update.title
-                            if (entry.request.toolCallId == toolCallId && updatedTitle != null) {
-                                entry.copy(request = entry.request.copy(title = updatedTitle))
-                            } else {
-                                entry
-                            }
-                        }
-                        else -> entry
+        _messages.update { messages ->
+            messages.map { msg ->
+                if (msg.toolCalls.any { it.toolCallId == toolCallId } ||
+                    msg.entries.any { entry ->
+                        entry is MessageEntry.PermissionRequest && entry.request.toolCallId == toolCallId
                     }
-                }
-                msg.copy(toolCalls = updatedToolCalls, entries = updatedEntries)
-            } else msg
+                ) {
+                    val updatedToolCalls = msg.toolCalls.map { tc ->
+                        if (tc.toolCallId == toolCallId) {
+                            val nextKind = update.kind?.toUiValue() ?: tc.kind
+                            val nextStatus = updatedStatus ?: tc.status
+                            tc.copy(
+                                title = update.title ?: tc.title,
+                                kind = nextKind,
+                                status = nextStatus,
+                                locations = updatedLocations ?: tc.locations,
+                                contentSummary = mergeSummary(nextKind, updatedSummary, tc.contentSummary),
+                                failureDetails = mergeFailureDetails(
+                                    nextStatus,
+                                    failureDetailsFor(nextStatus, update.content, update.rawOutput),
+                                    tc.failureDetails
+                                ),
+                                diffContents = mergeDiffContents(tc.diffContents, incomingDiffContents)
+                            )
+                        } else tc
+                    }
+                    val updatedEntries = msg.entries.map { entry ->
+                        when (entry) {
+                            is MessageEntry.ToolCall -> {
+                                if (entry.toolCall.toolCallId == toolCallId) {
+                                    val nextKind = update.kind?.toUiValue() ?: entry.toolCall.kind
+                                    val nextStatus = updatedStatus ?: entry.toolCall.status
+                                    entry.copy(
+                                        toolCall = entry.toolCall.copy(
+                                            title = update.title ?: entry.toolCall.title,
+                                            kind = nextKind,
+                                            status = nextStatus,
+                                            locations = updatedLocations ?: entry.toolCall.locations,
+                                            contentSummary = mergeSummary(nextKind, updatedSummary, entry.toolCall.contentSummary),
+                                            failureDetails = mergeFailureDetails(
+                                                nextStatus,
+                                                failureDetailsFor(nextStatus, update.content, update.rawOutput),
+                                                entry.toolCall.failureDetails
+                                            ),
+                                            diffContents = mergeDiffContents(entry.toolCall.diffContents, incomingDiffContents)
+                                        )
+                                    )
+                                } else {
+                                    entry
+                                }
+                            }
+                            is MessageEntry.PermissionRequest -> {
+                                val updatedTitle = update.title
+                                if (entry.request.toolCallId == toolCallId && updatedTitle != null) {
+                                    entry.copy(request = entry.request.copy(title = updatedTitle))
+                                } else {
+                                    entry
+                                }
+                            }
+                            else -> entry
+                        }
+                    }
+                    msg.copy(toolCalls = updatedToolCalls, entries = updatedEntries)
+                } else msg
+            }
         }
-        _messages.value = updatedMessages
     }
 
     private fun mergeDiffContents(
@@ -988,25 +1029,27 @@ class AcpSessionService(private val project: Project) : Disposable {
             return
         }
 
-        _messages.value = _messages.value.map { message ->
-            val updatedToolCalls = message.toolCalls.map { toolCall ->
-                if (toolCall.toolCallId in activeToolCallIds && !toolCall.status.isTerminalToolStatus()) {
-                    toolCall.copy(status = TOOL_STATUS_CANCELLED)
-                } else {
-                    toolCall
+        _messages.update { messages ->
+            messages.map { message ->
+                val updatedToolCalls = message.toolCalls.map { toolCall ->
+                    if (toolCall.toolCallId in activeToolCallIds && !toolCall.status.isTerminalToolStatus()) {
+                        toolCall.copy(status = TOOL_STATUS_CANCELLED)
+                    } else {
+                        toolCall
+                    }
                 }
-            }
-            val updatedEntries = message.entries.map { entry ->
-                if (entry is MessageEntry.ToolCall &&
-                    entry.toolCall.toolCallId in activeToolCallIds &&
-                    !entry.toolCall.status.isTerminalToolStatus()
-                ) {
-                    entry.copy(toolCall = entry.toolCall.copy(status = TOOL_STATUS_CANCELLED))
-                } else {
-                    entry
+                val updatedEntries = message.entries.map { entry ->
+                    if (entry is MessageEntry.ToolCall &&
+                        entry.toolCall.toolCallId in activeToolCallIds &&
+                        !entry.toolCall.status.isTerminalToolStatus()
+                    ) {
+                        entry.copy(toolCall = entry.toolCall.copy(status = TOOL_STATUS_CANCELLED))
+                    } else {
+                        entry
+                    }
                 }
+                message.copy(toolCalls = updatedToolCalls, entries = updatedEntries)
             }
-            message.copy(toolCalls = updatedToolCalls, entries = updatedEntries)
         }
         _activeToolCalls.value = emptyMap()
     }
@@ -1133,18 +1176,22 @@ class AcpSessionService(private val project: Project) : Disposable {
             return lastMessage
         }
 
-        val newMessage = ChatMessage(
-            id = UUID.randomUUID().toString(),
-            role = ROLE_ASSISTANT,
-            content = ""
-        )
-        _messages.value = _messages.value + newMessage
-        return newMessage
+        val newMessage = createMessage(ROLE_ASSISTANT, "")
+        _messages.update { messages ->
+            if (messages.lastOrNull()?.role == ROLE_ASSISTANT) {
+                messages
+            } else {
+                messages + newMessage
+            }
+        }
+        return _messages.value.last { it.role == ROLE_ASSISTANT }
     }
 
     private fun updateMessage(messageId: String, transform: (ChatMessage) -> ChatMessage) {
-        _messages.value = _messages.value.map { message ->
-            if (message.id == messageId) transform(message) else message
+        _messages.update { messages ->
+            messages.map { message ->
+                if (message.id == messageId) transform(message) else message
+            }
         }
     }
 
@@ -1238,13 +1285,18 @@ class AcpSessionService(private val project: Project) : Disposable {
      * Add a message to the chat history.
      */
     fun addMessage(role: String, content: String, thought: String? = null) {
-        val newMessage = ChatMessage(
+        _messages.update { messages ->
+            messages + createMessage(role, content, thought)
+        }
+    }
+
+    private fun createMessage(role: String, content: String, thought: String? = null): ChatMessage {
+        return ChatMessage(
             id = UUID.randomUUID().toString(),
             role = role,
             content = content,
             thought = thought
         )
-        _messages.value = _messages.value + newMessage
     }
 
     /**
@@ -1280,22 +1332,24 @@ class AcpSessionService(private val project: Project) : Disposable {
         }
         _pendingPermissionRequests.value = updatedRequests
 
-        _messages.value = _messages.value.map { message ->
-            var changed = false
-            val updatedEntries = message.entries.map { entry ->
-                when {
-                    entry is MessageEntry.PermissionRequest && entry.request.requestId == requestId -> {
-                        changed = true
-                        val updatedRequest = updatedRequests.firstOrNull { it.requestId == requestId } ?: entry.request
-                        entry.copy(request = updatedRequest)
+        _messages.update { messages ->
+            messages.map { message ->
+                var changed = false
+                val updatedEntries = message.entries.map { entry ->
+                    when {
+                        entry is MessageEntry.PermissionRequest && entry.request.requestId == requestId -> {
+                            changed = true
+                            val updatedRequest = updatedRequests.firstOrNull { it.requestId == requestId } ?: entry.request
+                            entry.copy(request = updatedRequest)
+                        }
+                        else -> entry
                     }
-                    else -> entry
                 }
-            }
-            if (!changed) {
-                message
-            } else {
-                message.copy(entries = updatedEntries)
+                if (!changed) {
+                    message
+                } else {
+                    message.copy(entries = updatedEntries)
+                }
             }
         }
         return true

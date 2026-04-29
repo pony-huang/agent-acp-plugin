@@ -124,6 +124,13 @@ class ChatViewPanel(
                 "[ChatRender] render requested: totalMessages=${state.messages.size}, visibleMessages=${visibleMessages.size}, " +
                     "isLoading=${state.isLoading}, lastStopReason=${state.lastStopReason}, mode=$renderMode"
             )
+            state.messages.lastOrNull { it.role == "assistant" }?.let { latestAssistant ->
+                logger.info(
+                    "[ChatRender] latest assistant snapshot: id=${latestAssistant.id}, contentLength=${latestAssistant.content.length}, " +
+                        "thoughtLength=${latestAssistant.thought?.length ?: 0}, entries=${latestAssistant.entries.size}, " +
+                        "toolCalls=${latestAssistant.toolCalls.size}, renderable=${latestAssistant.hasRenderableContent(true, state.isLoading)}"
+                )
+            }
 
             expandedThoughts.retainAll(state.messages.map { it.id }.toSet())
             val renderModels = visibleMessages.toRenderModels(

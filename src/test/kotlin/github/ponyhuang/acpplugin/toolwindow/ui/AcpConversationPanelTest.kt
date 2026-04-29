@@ -236,7 +236,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertTrue(markdownPane.y + markdownPane.height <= footer.y)
     }
 
-    fun testEditToolCallMessageHidesAssistantContentMarkdown() {
+    fun testEditToolCallMessageKeepsAssistantContentMarkdownVisible() {
         val card = instantiateMessageCard(
             AcpSessionService.ChatMessage(
                 id = "assistant-edit-content-hidden",
@@ -258,7 +258,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         val markdownPane = findByClassName(card, "MarkdownPane")
 
         assertNotNull(toolRow)
-        assertNull(markdownPane)
+        assertNotNull(markdownPane)
     }
 
     fun testSearchToolCallMessageKeepsAssistantContentMarkdownVisible() {
@@ -1011,6 +1011,62 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             assertEquals(1, mountedMessageRows(panel).size)
             assertSame(controllerComponent, mountedComponent)
             assertTrue(markdownPane.text.contains("First assistant reply"))
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testConversationRenderShowsFinalAssistantMarkdownAfterThoughtOnlyLoadingState() {
+        val disposable = Disposer.newDisposable()
+        val panel = ChatViewPanel(project, disposable)
+        try {
+            val host = JPanel(BorderLayout()).apply {
+                setSize(420, 600)
+                add(panel, BorderLayout.CENTER)
+            }
+            val initialMessage = AcpSessionService.ChatMessage(
+                id = "assistant-streaming-final",
+                role = "assistant",
+                content = "",
+                thought = "All artifacts are complete. The change is now ready for implementation. Let me provide the summary.\n",
+                entries = listOf(
+                    AcpSessionService.MessageEntry.Thought(
+                        "All artifacts are complete. The change is now ready for implementation. Let me provide the summary.\n"
+                    )
+                )
+            )
+            renderConversation(panel, listOf(initialMessage), isLoading = true)
+            layoutRecursively(host)
+
+            val finalContent = """
+
+All artifacts created! Ready for implementation.
+
+**Change: `optimize-code-structure`**
+- Location: `openspec/changes/optimize-code-structure/`
+            """.trimIndent()
+            val updatedMessage = initialMessage.copy(
+                content = finalContent,
+                entries = listOf(
+                    AcpSessionService.MessageEntry.Thought(
+                        "All artifacts are complete. The change is now ready for implementation. Let me provide the summary.\n"
+                    ),
+                    AcpSessionService.MessageEntry.Content(finalContent)
+                )
+            )
+            renderConversation(
+                panel,
+                listOf(updatedMessage),
+                isLoading = false,
+                lastStopReason = com.agentclientprotocol.model.StopReason.END_TURN
+            )
+            layoutRecursively(host)
+
+            val assistantRow = messageRowComponent(panel, "assistant-streaming-final")
+            val markdownPanes = findAllByType(assistantRow, javax.swing.JEditorPane::class.java)
+
+            assertTrue(markdownPanes.any { it.text.contains("All artifacts created! Ready for implementation.") })
+            assertTrue(markdownPanes.any { it.text.contains("optimize-code-structure") })
         } finally {
             Disposer.dispose(disposable)
         }
