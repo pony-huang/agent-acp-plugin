@@ -10,6 +10,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbAware
+import com.intellij.util.ui.JBUI
 import java.awt.Color
 import javax.swing.Icon
 import javax.swing.JComponent
@@ -27,6 +28,10 @@ class AgentComboBoxAction(
 
     private var selectedAgent: AgentItem? = null
     private var availableAgents: List<AgentItem> = availableAgents
+
+    init {
+        isSmallVariant = true
+    }
 
     fun getSelectedAgent(): AgentItem? = selectedAgent
 
@@ -83,6 +88,8 @@ class AgentComboBoxAction(
         button.icon = selectedAgent?.icon
         button.setForeground(EditorColorsManager.getInstance().globalScheme.defaultForeground)
         button.setBorder(null)
+        button.margin = JBUI.insets(0, 6, 0, 4)
+        button.putClientProperty("ActionToolbar.smallVariant", true)
         button.putClientProperty("JButton.backgroundColor", Color(0, 0, 0, 0))
         return button
     }

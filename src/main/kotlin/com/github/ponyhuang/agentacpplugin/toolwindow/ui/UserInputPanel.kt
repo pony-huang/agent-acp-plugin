@@ -24,11 +24,12 @@ import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
-import com.intellij.ui.dsl.builder.AlignX
-import com.intellij.ui.dsl.builder.panel
+import com.intellij.ui.components.panels.NonOpaquePanel
+import com.intellij.ui.components.panels.HorizontalLayout
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.components.BorderLayoutPanel
 import java.awt.BasicStroke
+import java.awt.BorderLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
@@ -192,34 +193,22 @@ class UserInputPanel(
         }
     }
 
-    private val sessionControlsRow = panel {
-        row {
-            cell(
-                agentComboBox
-            ).align(AlignX.FILL).focused()
-            cell(
-                planComboBox
-            ).align(AlignX.FILL).focused()
-            cell(
-                modelComboBox
-            ).align(AlignX.FILL).focused()
-            cell(
-                sendButton
-            ).align(AlignX.RIGHT).focused()
-        }.resizableRow()
+    private val selectorRow = NonOpaquePanel(HorizontalLayout(JBUI.scale(4))).apply {
+        add(agentComboBox)
+        add(planComboBox)
+        add(modelComboBox)
+    }
+
+    private val sessionControlsRow = NonOpaquePanel(BorderLayout(JBUI.scale(6), 0)).apply {
+        add(selectorRow, BorderLayout.WEST)
+        add(sendButton, BorderLayout.EAST)
     }.apply {
-        isOpaque = false
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
     }
 
-    var bottom = panel {
-        row {
-            cell(sessionControlsRow)
-                .align(AlignX.FILL)
-                .resizableColumn()
-        }
+    var bottom = NonOpaquePanel(BorderLayout()).apply {
+        add(sessionControlsRow, BorderLayout.CENTER)
     }.apply {
-        isOpaque = false
         background = EditorColorsManager.getInstance().globalScheme.defaultBackground
     }
 

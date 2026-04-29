@@ -14,6 +14,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.ui.components.panels.HorizontalLayout
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
@@ -177,6 +178,20 @@ class AcpUserInputPanelTest : BasePlatformTestCase() {
 
         assertFalse(SwingUtilities.isDescendingFrom(readButton(panel, "connectionButton"), sessionControlsRow))
         assertTrue(SwingUtilities.isDescendingFrom(readButton(panel, "sendButton"), sessionControlsRow))
+
+        panel.dispose()
+    }
+
+    fun testSessionSelectorsUseCompactHorizontalLayout() {
+        val panel = UserInputPanel(project = project, agentItems = emptyList())
+
+        val selectorRow = readComponent(panel, "selectorRow")
+
+        assertInstanceOf(selectorRow.layout, HorizontalLayout::class.java)
+        assertTrue(SwingUtilities.isDescendingFrom(readComponent(panel, "agentComboBox"), selectorRow))
+        assertTrue(SwingUtilities.isDescendingFrom(readComponent(panel, "planComboBox"), selectorRow))
+        assertTrue(SwingUtilities.isDescendingFrom(readComponent(panel, "modelComboBox"), selectorRow))
+        assertFalse(SwingUtilities.isDescendingFrom(readButton(panel, "sendButton"), selectorRow))
 
         panel.dispose()
     }

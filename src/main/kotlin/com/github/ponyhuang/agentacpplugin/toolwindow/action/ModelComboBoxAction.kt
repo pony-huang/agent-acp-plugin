@@ -13,6 +13,7 @@ import com.intellij.openapi.actionSystem.ex.ComboBoxAction
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.util.ui.JBUI
 import java.awt.Color
 import javax.swing.JComponent
 
@@ -32,6 +33,7 @@ class ModelComboBoxAction(
     private var buttonComponent: ComboBoxButton? = null
 
     init {
+        isSmallVariant = true
         agentNotifier?.addListener(this)
     }
 
@@ -118,6 +120,8 @@ class ModelComboBoxAction(
         button.text = selectedModel?.displayName ?: MyBundle.message("combobox.selectModel")
         button.setForeground(EditorColorsManager.getInstance().globalScheme.defaultForeground)
         button.setBorder(null)
+        button.margin = JBUI.insets(0, 6, 0, 4)
+        button.putClientProperty("ActionToolbar.smallVariant", true)
         button.putClientProperty("JButton.backgroundColor", Color(0, 0, 0, 0))
         button.isEnabled = models.isNotEmpty()
         return button
