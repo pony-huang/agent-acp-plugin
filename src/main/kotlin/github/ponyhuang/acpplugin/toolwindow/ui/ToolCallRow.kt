@@ -60,7 +60,10 @@ internal class ToolCallRow(
 
 internal class ToolCallHeaderPanel(
     private val project: Project
-) : JPanel(BorderLayout(JBUI.scale(8), 0)) {
+) : JPanel(BorderLayout(0, JBUI.scale(4))) {
+    private val kindLabel = JBLabel().apply {
+        foreground = UIUtil.getContextHelpForeground()
+    }
     private val titleLayout = CardLayout()
     private val titleContainer = JPanel(titleLayout).apply {
         isOpaque = false
@@ -74,6 +77,12 @@ internal class ToolCallHeaderPanel(
         add(diffActionPanel, BorderLayout.CENTER)
         add(statusLabel, BorderLayout.EAST)
     }
+    private val headerMetaPanel = JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
+        isOpaque = false
+        add(kindLabel, BorderLayout.WEST)
+        add(trailingPanel, BorderLayout.EAST)
+    }
+    private var currentKindModel: ToolCallKindModel? = null
     private var currentTitleModel: ToolCallTitleModel? = null
     private var currentStatusModel: ToolCallStatusModel? = null
     private var currentDiffContents: List<AcpSessionService.ToolCallDiffInfo> = emptyList()
@@ -84,11 +93,16 @@ internal class ToolCallHeaderPanel(
         maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         titleContainer.add(defaultHeader.component, DefaultToolCallHeaderView.CARD_ID)
         titleContainer.add(navigableHeader.component, NavigableToolCallHeaderView.CARD_ID)
+        add(headerMetaPanel, BorderLayout.NORTH)
         add(titleContainer, BorderLayout.CENTER)
-        add(trailingPanel, BorderLayout.EAST)
     }
 
     fun update(model: ToolCallRowModel) {
+        if (model.kind != currentKindModel) {
+            kindLabel.icon = model.kind.icon
+            kindLabel.text = model.kind.text
+            currentKindModel = model.kind
+        }
         if (model.title != currentTitleModel) {
             applyTitle(model.title)
             currentTitleModel = model.title
@@ -152,18 +166,19 @@ internal class ToolCallRowModelMapper(project: Project) {
         val navigationTarget = primaryLocation?.takeIf { toolCall.kind == "read" }?.let(navigationResolver::resolve)
         val title = if (navigationTarget != null) {
             ToolCallTitleModel.Navigable(
-                icon = toolKindIcon(toolCall.kind),
-                labelText = toolKindDisplay(toolCall.kind),
                 navigationText = navigationResolver.linkTextFor(navigationTarget),
                 navigationTarget = navigationTarget
             )
         } else {
             ToolCallTitleModel.Default(
-                icon = toolKindIcon(toolCall.kind),
-                text = buildTitleText(toolCall.kind, toolCall.title)
+                text = toolCall.title
             )
         }
         return ToolCallRowModel(
+            kind = ToolCallKindModel(
+                icon = toolKindIcon(toolCall.kind),
+                text = toolKindDisplay(toolCall.kind)
+            ),
             title = title,
             status = ToolCallStatusModel(
                 status = toolCall.status,
@@ -171,17 +186,6 @@ internal class ToolCallRowModelMapper(project: Project) {
             ),
             diffContents = toolCall.diffContents
         )
-    }
-
-    private fun buildTitleText(kind: String?, title: String): String {
-        val kindDisplay = toolKindDisplay(kind)
-        val kindTitleLabel = kindLabel(kind)
-        return when {
-            title.startsWith("$kindTitleLabel ", ignoreCase = true) ->
-                "$kindDisplay ${title.drop(kindTitleLabel.length).trimStart()}"
-            title.equals(kindTitleLabel, ignoreCase = true) -> kindDisplay
-            else -> "$kindDisplay $title"
-        }
     }
 }
 
@@ -210,22 +214,23 @@ internal object ToolCallNavigator {
 }
 
 internal data class ToolCallRowModel(
+    val kind: ToolCallKindModel,
     val title: ToolCallTitleModel,
     val status: ToolCallStatusModel,
     val diffContents: List<AcpSessionService.ToolCallDiffInfo>
 )
 
-internal sealed interface ToolCallTitleModel {
-    val icon: Icon
+internal data class ToolCallKindModel(
+    val icon: Icon,
+    val text: String
+)
 
+internal sealed interface ToolCallTitleModel {
     data class Default(
-        override val icon: Icon,
         val text: String
     ) : ToolCallTitleModel
 
     data class Navigable(
-        override val icon: Icon,
-        val labelText: String,
         val navigationText: String,
         val navigationTarget: ToolCallNavigationTarget
     ) : ToolCallTitleModel
@@ -255,8 +260,7 @@ internal class DefaultToolCallHeaderView : ToolCallHeaderView<ToolCallTitleModel
     }
 
     override fun update(model: ToolCallTitleModel.Default) {
-        component.icon = model.icon
-        component.text = model.text
+        component.text = renderLabelHtml(model.text)
     }
 
     companion object {
@@ -267,25 +271,17 @@ internal class DefaultToolCallHeaderView : ToolCallHeaderView<ToolCallTitleModel
 internal class NavigableToolCallHeaderView(
     private val project: Project
 ) : ToolCallHeaderView<ToolCallTitleModel.Navigable> {
-    private val titleLabel = JBLabel().apply {
-        isAllowAutoWrapping = true
-        verticalAlignment = SwingConstants.TOP
-        foreground = UIUtil.getLabelForeground()
-    }
     private val titleLink = ActionLink("") {}.apply {
         border = JBUI.Borders.empty()
         alignmentX = 0f
     }
 
-    override val component: JComponent = JPanel(BorderLayout(JBUI.scale(4), 0)).apply {
+    override val component: JComponent = JPanel(BorderLayout()).apply {
         isOpaque = false
-        add(titleLabel, BorderLayout.CENTER)
-        add(titleLink, BorderLayout.EAST)
+        add(titleLink, BorderLayout.WEST)
     }
 
     override fun update(model: ToolCallTitleModel.Navigable) {
-        titleLabel.icon = model.icon
-        titleLabel.text = model.labelText
         titleLink.text = model.navigationText
         titleLink.actionListeners.forEach(titleLink::removeActionListener)
         titleLink.addActionListener {

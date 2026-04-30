@@ -109,9 +109,21 @@ internal class MarkdownPane(content: String) : JEditorPane() {
 
 private val markdownFlavour = GFMFlavourDescriptor()
 
-internal fun renderHtml(text: String): String {
+private fun markdownHtmlBody(text: String): String {
     val parsedTree = MarkdownParser(markdownFlavour).buildMarkdownTreeFromString(text)
-    val body = HtmlGenerator(text, parsedTree, markdownFlavour).generateHtml()
+    return HtmlGenerator(text, parsedTree, markdownFlavour).generateHtml()
+}
+
+private fun compactLabelHtmlBody(body: String): String {
+    return body
+        .replace(Regex("^<p>(.*)</p>$", RegexOption.DOT_MATCHES_ALL), "$1")
+        .replace("<p>", "")
+        .replace("</p>", "<br/>")
+        .removeSuffix("<br/>")
+}
+
+internal fun renderHtml(text: String): String {
+    val body = markdownHtmlBody(text)
     return """
         <html>
         <head>
@@ -140,6 +152,8 @@ internal fun renderHtml(text: String): String {
         </html>
     """.trimIndent()
 }
+
+internal fun renderLabelHtml(text: String): String = "<html>${compactLabelHtmlBody(markdownHtmlBody(text))}</html>"
 
 internal fun toolKindDisplay(kind: String?): String {
     return kindLabel(kind)

@@ -11,6 +11,7 @@ import com.intellij.ide.HelpTooltip
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -720,7 +721,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         layoutRecursively(host)
 
         val titleLabel = findAllByType(row, JBLabel::class.java)
-            .first { it.text.contains("Execute command with very long argument") }
+            .first { it.visibleText().contains("Execute command with very long argument") }
         val wideHeight = row.height
         val widePreferredHeight = titleLabel.preferredSize.height
 
@@ -907,11 +908,14 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Read file" }
+        val kindLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Read" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.visibleText() == "Read file" }
         val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
 
+        assertNotNull(kindLabel)
         assertNotNull(titleLabel)
-        assertEquals(AllIcons.Actions.MenuOpen, titleLabel!!.icon)
+        assertEquals(AllIcons.Actions.MenuOpen, kindLabel!!.icon)
+        assertNull(titleLabel!!.icon)
         assertEquals(AllIcons.General.InspectionsOK, statusIcon.icon)
         assertUsesTemplateChrome(row)
     }
@@ -926,14 +930,17 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Search workspace" }
+        val kindLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Search" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.visibleText() == "Search workspace" }
         val statusIcon = findByClassName(row, "ToolStatusIcon") as JBLabel
         val animationTimer = statusIcon.javaClass.getDeclaredField("animationTimer").apply {
             isAccessible = true
         }
 
+        assertNotNull(kindLabel)
         assertNotNull(titleLabel)
-        assertEquals(AllIcons.Actions.Search, titleLabel!!.icon)
+        assertEquals(AllIcons.Actions.Search, kindLabel!!.icon)
+        assertNull(titleLabel!!.icon)
         assertEquals(AllIcons.Process.Step_1, statusIcon.icon)
         assertNotNull(animationTimer.get(statusIcon))
     }
@@ -1075,8 +1082,9 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
+        assertEquals("Read", model.kind.text)
+        assertEquals(AllIcons.Actions.MenuOpen, model.kind.icon)
         val title = model.title as ToolCallTitleModel.Navigable
-        assertEquals("Read", title.labelText)
         assertEquals("Main.kt", title.navigationText)
         assertNotNull(title.navigationTarget)
         assertEquals("completed", model.status.status)
@@ -1094,12 +1102,15 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Read file" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.visibleText() == "Read file" }
         val locationLink = findAllByType(row, ActionLink::class.java).firstOrNull { it.text == "missing/File.kt:3" }
         val locationLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "missing/File.kt:3" }
+        val kindLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Read" }
 
+        assertNotNull(kindLabel)
         assertNotNull(titleLabel)
-        assertEquals(AllIcons.Actions.MenuOpen, titleLabel!!.icon)
+        assertEquals(AllIcons.Actions.MenuOpen, kindLabel!!.icon)
+        assertNull(titleLabel!!.icon)
         assertNull(locationLink)
         assertNull(locationLabel)
     }
@@ -1122,10 +1133,13 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Edit Apply patch" }
+        val kindLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Edit" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.visibleText() == "Apply patch" }
 
+        assertNotNull(kindLabel)
         assertNotNull(titleLabel)
-        assertEquals(AllIcons.Actions.Edit, titleLabel!!.icon)
+        assertEquals(AllIcons.Actions.Edit, kindLabel!!.icon)
+        assertNull(titleLabel!!.icon)
     }
 
     fun testToolCallRowShowsDiffActionWhenDiffsExist() {
@@ -1170,10 +1184,13 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Search workspace" }
+        val kindLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Search" }
+        val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.visibleText() == "Search workspace" }
 
+        assertNotNull(kindLabel)
         assertNotNull(titleLabel)
-        assertEquals(AllIcons.Actions.Search, titleLabel!!.icon)
+        assertEquals(AllIcons.Actions.Search, kindLabel!!.icon)
+        assertNull(titleLabel!!.icon)
         assertFalse(row.javaClass.declaredFields.any { it.name == "detailsPanel" || it.name == "diffContainer" })
     }
 
@@ -1191,6 +1208,25 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
 
         assertTrue(model.title is ToolCallTitleModel.Default)
         assertEquals("Failure details", model.status.summary)
+    }
+
+    fun testToolCallRowRendersDefaultTitleAsMarkdownHtml() {
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-markdown-title",
+                title = "**Apply** `patch`",
+                status = "completed",
+                kind = "edit"
+            )
+        )
+
+        val titleLabel = findAllByType(row, JBLabel::class.java)
+            .firstOrNull { it.text?.startsWith("<html>") == true && it.visibleText() == "Apply patch" }
+
+        assertNotNull(titleLabel)
+        assertTrue(titleLabel!!.text.contains("<strong>Apply</strong>"))
+        assertTrue(titleLabel.text.contains("<code>patch</code>"))
+        assertFalse(titleLabel.text.contains("<p>"))
     }
 
     fun testDiffPreviewFactoryUsesDocumentContentForBothSidesWhenBaselineExists() {
@@ -1763,6 +1799,8 @@ All artifacts created! Ready for implementation.
             arrayOf(project, toolCall)
         )
     }
+
+    private fun JBLabel.visibleText(): String = StringUtil.removeHtmlTags(text ?: "").trim()
 
     private fun instantiateMessageCard(
         message: AcpSessionService.ChatMessage,
