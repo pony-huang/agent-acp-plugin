@@ -388,6 +388,316 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertEquals(JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER, scrollPane.horizontalScrollBarPolicy)
     }
 
+    fun testThoughtToggleRelayoutsMountedConversationRowAndViewport() {
+        val disposable = Disposer.newDisposable()
+        val panel = ChatViewPanel(project, disposable)
+        try {
+            val longThought = List(24) { index ->
+                "Thought line ${index + 1} should force a visible expanded region inside the conversation row."
+            }.joinToString("\n\n")
+            val host = JPanel(BorderLayout()).apply {
+                setSize(420, 720)
+                add(panel, BorderLayout.CENTER)
+            }
+            val message = AcpSessionService.ChatMessage(
+                id = "assistant-thought-toggle-layout",
+                role = "assistant",
+                content = "Answer",
+                entries = listOf(
+                    AcpSessionService.MessageEntry.Thought(longThought),
+                    AcpSessionService.MessageEntry.Content("Answer")
+                )
+            )
+            renderConversation(panel, listOf(message))
+            layoutRecursively(host)
+
+            val row = messageRowComponent(panel, "assistant-thought-toggle-layout")
+            val messagePanel = panel.javaClass.getDeclaredField("messagePanel").apply {
+                isAccessible = true
+            }.get(panel) as JPanel
+            val messageScrollPane = panel.javaClass.getDeclaredField("messageScrollPane").apply {
+                isAccessible = true
+            }.get(panel) as JBScrollPane
+            val thoughtPanel = findByClassName(row, "ThoughtPanel") as javax.swing.JComponent
+            val contentPanel = thoughtPanel.javaClass.getDeclaredField("contentPanel").apply {
+                isAccessible = true
+            }.get(thoughtPanel) as JPanel
+            val toggle = findAllByType(thoughtPanel, ActionLink::class.java).first { it.text == "Show Thinking" }
+            val collapsedHeight = row.height
+            val collapsedPreferredHeight = messagePanel.preferredSize.height
+
+            toggle.doClick()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            layoutRecursively(host)
+
+            assertTrue(contentPanel.isVisible)
+            assertTrue("row=${row.bounds} pref=${row.preferredSize}", row.height > collapsedHeight)
+            assertTrue(
+                "panel=${messagePanel.bounds} pref=${messagePanel.preferredSize}",
+                messagePanel.preferredSize.height > collapsedPreferredHeight
+            )
+            assertTrue(
+                "viewSize=${messageScrollPane.viewport.viewSize} row=${row.bounds}",
+                messageScrollPane.viewport.viewSize.height >= row.y + row.height
+            )
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testThoughtToggleTracksViewportWidthForMarkdownContent() {
+        val disposable = Disposer.newDisposable()
+        val panel = ChatViewPanel(project, disposable)
+        try {
+            val markdownThought = buildString {
+                appendLine("This is a deliberately long thought paragraph that should wrap to the available viewport width after expansion.")
+                appendLine()
+                repeat(6) { index ->
+                    appendLine("- Bullet ${index + 1} contains a long description that should wrap in a narrow conversation column and contribute to the measured preferred height.")
+                }
+                appendLine()
+                appendLine("```")
+                repeat(8) { index ->
+                    appendLine("val line$index = \"This code block line should still be measured against the viewport width after expansion\"")
+                }
+                appendLine("```")
+            }.trim()
+            val host = JPanel(BorderLayout()).apply {
+                setSize(360, 720)
+                add(panel, BorderLayout.CENTER)
+            }
+            val message = AcpSessionService.ChatMessage(
+                id = "assistant-thought-markdown-width",
+                role = "assistant",
+                content = "Answer",
+                entries = listOf(
+                    AcpSessionService.MessageEntry.Thought(markdownThought),
+                    AcpSessionService.MessageEntry.Content("Answer")
+                )
+            )
+            renderConversation(panel, listOf(message))
+            layoutRecursively(host)
+
+            val row = messageRowComponent(panel, "assistant-thought-markdown-width")
+            val thoughtPanel = findByClassName(row, "ThoughtPanel") as javax.swing.JComponent
+            val scrollPane = thoughtPanel.javaClass.getDeclaredField("scrollPane").apply {
+                isAccessible = true
+            }.get(thoughtPanel) as JBScrollPane
+            val markdownPane = findByClassName(thoughtPanel, "MarkdownPane") as javax.swing.JComponent
+            val toggle = findAllByType(thoughtPanel, ActionLink::class.java).first { it.text == "Show Thinking" }
+
+            toggle.doClick()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            layoutRecursively(host)
+
+            assertTrue(scrollPane.isVisible)
+            assertTrue(
+                "markdown=${markdownPane.bounds} viewport=${scrollPane.viewport.bounds}",
+                markdownPane.width <= scrollPane.viewport.width
+            )
+            assertTrue(
+                "preferred=${markdownPane.preferredSize} scroll=${scrollPane.bounds}",
+                markdownPane.preferredSize.height > JBUI.scale(240)
+            )
+            assertTrue(
+                "viewSize=${scrollPane.viewport.viewSize} viewport=${scrollPane.viewport.bounds}",
+                scrollPane.viewport.viewSize.width <= scrollPane.viewport.width
+            )
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testExpandedThoughtRelayoutsWhenConversationScrollbarAppears() {
+        val disposable = Disposer.newDisposable()
+        val panel = ChatViewPanel(project, disposable)
+        try {
+            val widthSensitiveThought = buildString {
+                repeat(10) { index ->
+                    appendLine("Paragraph ${index + 1} has enough wrapped content to noticeably change height when the available conversation width shrinks.")
+                    appendLine()
+                }
+            }.trim()
+            val host = JPanel(BorderLayout()).apply {
+                setSize(360, 420)
+                add(panel, BorderLayout.CENTER)
+            }
+            val thoughtMessage = AcpSessionService.ChatMessage(
+                id = "assistant-width-shrink",
+                role = "assistant",
+                content = "Answer",
+                entries = listOf(
+                    AcpSessionService.MessageEntry.Thought(widthSensitiveThought),
+                    AcpSessionService.MessageEntry.Content("Answer")
+                )
+            )
+            renderConversation(panel, listOf(thoughtMessage))
+            layoutRecursively(host)
+
+            val thoughtRow = messageRowComponent(panel, "assistant-width-shrink")
+            val thoughtPanel = findByClassName(thoughtRow, "ThoughtPanel") as javax.swing.JComponent
+            val scrollPane = thoughtPanel.javaClass.getDeclaredField("scrollPane").apply {
+                isAccessible = true
+            }.get(thoughtPanel) as JBScrollPane
+            val markdownPane = findByClassName(thoughtPanel, "MarkdownPane") as javax.swing.JComponent
+            val messageScrollPane = panel.javaClass.getDeclaredField("messageScrollPane").apply {
+                isAccessible = true
+            }.get(panel) as JBScrollPane
+            val toggle = findAllByType(thoughtPanel, ActionLink::class.java).first { it.text == "Show Thinking" }
+
+            toggle.doClick()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            layoutRecursively(host)
+
+            assertFalse(messageScrollPane.verticalScrollBar.isVisible)
+            val widthBeforeScrollbar = markdownPane.width
+            val viewportWidthBeforeScrollbar = messageScrollPane.viewport.width
+            val preferredHeightBeforeScrollbar = markdownPane.preferredSize.height
+
+            val fillerMessages = List(6) { index ->
+                AcpSessionService.ChatMessage(
+                    id = "assistant-filler-$index",
+                    role = "assistant",
+                    content = "Filler response $index\n\n" + "Additional content ".repeat(24),
+                    entries = listOf(
+                        AcpSessionService.MessageEntry.ToolCall(
+                            AcpSessionService.ToolCallInfo(
+                                toolCallId = "tool-filler-$index",
+                                title = "Read workspace file $index",
+                                status = "completed",
+                                kind = "read",
+                                contentSummary = "Done"
+                            )
+                        ),
+                        AcpSessionService.MessageEntry.Content("Filler response $index\n\n" + "Additional content ".repeat(24))
+                    )
+                )
+            }
+            renderConversation(panel, listOf(thoughtMessage) + fillerMessages)
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            layoutRecursively(host)
+
+            val thoughtRowAfter = mountedMessageRows(panel).first {
+                findByClassName(it, "ThoughtPanel") != null
+            }
+            val thoughtPanelAfter = findByClassName(thoughtRowAfter, "ThoughtPanel") as javax.swing.JComponent
+            val markdownPaneAfter = findByClassName(thoughtPanelAfter, "MarkdownPane") as javax.swing.JComponent
+
+            assertTrue(messageScrollPane.verticalScrollBar.isVisible)
+            assertTrue(
+                "beforeMarkdownWidth=$widthBeforeScrollbar afterMarkdownWidth=${markdownPaneAfter.width} beforeViewportWidth=$viewportWidthBeforeScrollbar afterViewportWidth=${messageScrollPane.viewport.width}",
+                markdownPaneAfter.width <= messageScrollPane.viewport.width
+            )
+            assertTrue(
+                "beforeHeight=$preferredHeightBeforeScrollbar afterHeight=${markdownPaneAfter.preferredSize.height} markdown=${markdownPaneAfter.bounds}",
+                markdownPaneAfter.preferredSize.height >= preferredHeightBeforeScrollbar
+            )
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
+    fun testMarkdownContentRewrapsWhenHostWidthShrinks() {
+        val disposable = Disposer.newDisposable()
+        val panel = ChatViewPanel(project, disposable)
+        try {
+            val longToken = buildString {
+                repeat(12) { append("workspace_path_segment_0123456789/") }
+            }
+            val shrinkingThought = buildString {
+                appendLine("Paragraph content should continue wrapping after the tool window becomes narrower.")
+                appendLine()
+                appendLine("```")
+                appendLine("val veryLongCommand = \"$longToken\"")
+                appendLine("```")
+            }.trim()
+            val host = JPanel(BorderLayout()).apply {
+                setSize(460, 520)
+                add(panel, BorderLayout.CENTER)
+            }
+            val message = AcpSessionService.ChatMessage(
+                id = "assistant-width-shrink-wrap",
+                role = "assistant",
+                content = "Body with $longToken",
+                entries = listOf(
+                    AcpSessionService.MessageEntry.Thought(shrinkingThought),
+                    AcpSessionService.MessageEntry.ToolCall(
+                        AcpSessionService.ToolCallInfo(
+                            toolCallId = "tool-width-shrink-wrap",
+                            title = "Read $longToken",
+                            status = "completed",
+                            kind = "read",
+                            contentSummary = longToken
+                        )
+                    ),
+                    AcpSessionService.MessageEntry.Content("Body with $longToken")
+                )
+            )
+            renderConversation(panel, listOf(message))
+            layoutRecursively(host)
+
+            val row = messageRowComponent(panel, "assistant-width-shrink-wrap")
+            val thoughtPanel = findByClassName(row, "ThoughtPanel") as javax.swing.JComponent
+            val toggle = findAllByType(thoughtPanel, ActionLink::class.java).first { it.text == "Show Thinking" }
+            val messageScrollPane = panel.javaClass.getDeclaredField("messageScrollPane").apply {
+                isAccessible = true
+            }.get(panel) as JBScrollPane
+
+            toggle.doClick()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            layoutRecursively(host)
+
+            val rowHeightAtWideWidth = row.height
+            val viewportWidthAtWideWidth = messageScrollPane.viewport.width
+            val thoughtMarkdownAtWideWidth =
+                findAllByType(row, javax.swing.JEditorPane::class.java).first { it.text.contains("veryLongCommand") }
+            val contentMarkdownAtWideWidth =
+                findAllByType(row, javax.swing.JEditorPane::class.java).first { it.text.contains("Body with") }
+            val thoughtPreferredHeightAtWideWidth = thoughtMarkdownAtWideWidth.preferredSize.height
+            val contentPreferredHeightAtWideWidth = contentMarkdownAtWideWidth.preferredSize.height
+
+            host.setSize(280, 520)
+            host.doLayout()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            layoutRecursively(host)
+
+            val shrunkRow = messageRowComponent(panel, "assistant-width-shrink-wrap")
+            val thoughtMarkdownAfterShrink =
+                findAllByType(shrunkRow, javax.swing.JEditorPane::class.java).first { it.text.contains("veryLongCommand") }
+            val contentMarkdownAfterShrink =
+                findAllByType(shrunkRow, javax.swing.JEditorPane::class.java).first { it.text.contains("Body with") }
+
+            assertTrue(messageScrollPane.viewport.width < viewportWidthAtWideWidth)
+            assertTrue(
+                "thoughtWidth=${thoughtMarkdownAfterShrink.width} viewport=${messageScrollPane.viewport.width}",
+                thoughtMarkdownAfterShrink.width <= messageScrollPane.viewport.width
+            )
+            assertTrue(
+                "contentWidth=${contentMarkdownAfterShrink.width} viewport=${messageScrollPane.viewport.width}",
+                contentMarkdownAfterShrink.width <= messageScrollPane.viewport.width
+            )
+            assertTrue(
+                "wideThoughtPref=$thoughtPreferredHeightAtWideWidth shrunkThoughtPref=${thoughtMarkdownAfterShrink.preferredSize.height}",
+                thoughtMarkdownAfterShrink.preferredSize.height >= thoughtPreferredHeightAtWideWidth
+            )
+            assertTrue(
+                "wideContentPref=$contentPreferredHeightAtWideWidth shrunkContentPref=${contentMarkdownAfterShrink.preferredSize.height}",
+                contentMarkdownAfterShrink.preferredSize.height >= contentPreferredHeightAtWideWidth
+            )
+            assertTrue(
+                "wideRow=$rowHeightAtWideWidth shrunkRow=${shrunkRow.height}",
+                shrunkRow.height >= rowHeightAtWideWidth
+            )
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
     fun testConversationRenderReusesThoughtPanelForThoughtTextGrowth() {
         val disposable = Disposer.newDisposable()
         val panel = ChatViewPanel(project, disposable)
@@ -1264,6 +1574,91 @@ All artifacts created! Ready for implementation.
         }
     }
 
+    fun testPermissionCardStructureGrowthRelayoutsMountedConversationRowAndViewport() {
+        val disposable = Disposer.newDisposable()
+        val panel = ChatViewPanel(project, disposable)
+        try {
+            val host = JPanel(BorderLayout()).apply {
+                setSize(420, 720)
+                add(panel, BorderLayout.CENTER)
+            }
+            val initialRequest = AcpSessionService.PermissionRequestInfo(
+                requestId = "request-relayout",
+                toolCallId = "tool-relayout",
+                title = "Permission",
+                options = listOf(
+                    AcpSessionService.PermissionOptionInfo(
+                        optionId = "allow-once",
+                        label = "Allow once",
+                        kind = "allow_once"
+                    )
+                ),
+                selectedOptionId = null,
+                submitted = false
+            )
+            renderConversation(panel, listOf(permissionMessage("assistant-permission-relayout", initialRequest)))
+            layoutRecursively(host)
+
+            val row = mountedMessageRowComponent(panel, 0)
+            val messagePanel = panel.javaClass.getDeclaredField("messagePanel").apply {
+                isAccessible = true
+            }.get(panel) as JPanel
+            val messageScrollPane = panel.javaClass.getDeclaredField("messageScrollPane").apply {
+                isAccessible = true
+            }.get(panel) as JBScrollPane
+            val card = permissionCard(panel, "request-relayout")
+            val initialRowHeight = row.height
+            val initialPreferredHeight = messagePanel.preferredSize.height
+            val initialCard = card
+
+            (card as JPanel).javaClass.getDeclaredMethod(
+                "updateRequest",
+                AcpSessionService.PermissionRequestInfo::class.java
+            ).apply {
+                isAccessible = true
+            }.invoke(
+                card,
+                initialRequest.copy(
+                    title = "Permission required to run a workspace command that needs a larger amount of explanation",
+                    options = listOf(
+                        AcpSessionService.PermissionOptionInfo(
+                            optionId = "allow-once",
+                            label = "Allow once",
+                            kind = "allow_once"
+                        ),
+                        AcpSessionService.PermissionOptionInfo(
+                            optionId = "allow-session",
+                            label = "Allow for this session",
+                            kind = "allow_session"
+                        ),
+                        AcpSessionService.PermissionOptionInfo(
+                            optionId = "reject-once",
+                            label = "Reject once",
+                            kind = "reject_once"
+                        )
+                    )
+                )
+            )
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            layoutRecursively(host)
+
+            val updatedCard = permissionCard(panel, "request-relayout")
+
+            assertSame(initialCard, updatedCard)
+            assertTrue("row=${row.bounds} pref=${row.preferredSize}", row.height > initialRowHeight)
+            assertTrue(
+                "panel=${messagePanel.bounds} pref=${messagePanel.preferredSize}",
+                messagePanel.preferredSize.height > initialPreferredHeight
+            )
+            assertTrue(
+                "viewSize=${messageScrollPane.viewport.viewSize} row=${row.bounds}",
+                messageScrollPane.viewport.viewSize.height >= row.y + row.height
+            )
+        } finally {
+            Disposer.dispose(disposable)
+        }
+    }
+
     fun testConversationRenderRebuildsRowWhenEntryStructureChanges() {
         val disposable = Disposer.newDisposable()
         val panel = ChatViewPanel(project, disposable)
@@ -1447,7 +1842,16 @@ All artifacts created! Ready for implementation.
         val controllers = panel.javaClass.getDeclaredField("messageRowControllers").apply {
             isAccessible = true
         }.get(panel) as Map<*, *>
-        val controller = controllers[messageId]!!
+        val controller = controllers[messageId] ?: run {
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            val refreshedControllers = panel.javaClass.getDeclaredField("messageRowControllers").apply {
+                isAccessible = true
+            }.get(panel) as Map<*, *>
+            checkNotNull(refreshedControllers[messageId]) {
+                "Missing row controller for messageId=$messageId available=${refreshedControllers.keys}"
+            }
+        }
         val componentField = controller.javaClass.getDeclaredField("component").apply {
             isAccessible = true
         }
@@ -1483,7 +1887,14 @@ All artifacts created! Ready for implementation.
         val cards = panel.javaClass.getDeclaredField("permissionCardsByRequestId").apply {
             isAccessible = true
         }.get(panel) as Map<*, *>
-        return cards[requestId] as javax.swing.JComponent
+        val directMatch = cards[requestId] as? javax.swing.JComponent
+        if (directMatch != null) {
+            return directMatch
+        }
+        return mountedMessageRows(panel)
+            .asSequence()
+            .mapNotNull { findByClassName(it, "PermissionRequestCardPanel") as? javax.swing.JComponent }
+            .first()
     }
 
     private fun permissionMessage(

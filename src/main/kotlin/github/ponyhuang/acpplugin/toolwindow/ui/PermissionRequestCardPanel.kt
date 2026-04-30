@@ -73,8 +73,7 @@ internal class PermissionRequestCardPanel(
         } else {
             applyRequestState()
         }
-        revalidate()
-        repaint()
+        revalidateAncestorChain()
     }
 
     private fun rebuildOptions() {

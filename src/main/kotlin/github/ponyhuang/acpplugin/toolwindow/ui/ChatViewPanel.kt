@@ -237,8 +237,16 @@ class ChatViewPanel(
                 } else {
                     expandedThoughts.remove(messageId)
                 }
+                refreshMessageLayout(messageId)
             }
         )
+    }
+
+    private fun refreshMessageLayout(messageId: String) {
+        val rowComponent = messageRowControllers[messageId]?.component ?: return
+        rowComponent.revalidateAncestorChain()
+        messagePanel.revalidateAncestorChain()
+        messageScrollPane.viewport.revalidateAncestorChain()
     }
 
     private fun rebuildPanelChildren(orderedIds: List<String>, showEmptyState: Boolean) {

@@ -6,6 +6,7 @@ import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.JPanel
+import javax.swing.SwingUtilities
 
 internal class ThoughtPanel(
     thought: String,
@@ -71,8 +72,11 @@ internal class ThoughtPanel(
         }
         contentPanel.isVisible = expanded
         toggle.text = nextToggleText
-        contentPanel.revalidate()
-        revalidate()
-        repaint()
+        revalidateAncestorChain()
+        if (expanded) {
+            SwingUtilities.invokeLater {
+                markdownPane.revalidateAncestorChain()
+            }
+        }
     }
 }
