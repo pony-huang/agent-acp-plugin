@@ -58,6 +58,7 @@ Use Java/Kotlin toolchain 21 as configured in Gradle.
 - Name tests as `test...` methods (for example, `testRename`, `testProjectService`).
 - Store file-based fixtures under `src/test/testData/...` and keep before/after pairs explicit (`foo.xml`, `foo_after.xml`).
 - Run `./gradlew check` before opening a PR.
+- If the user explicitly says they will handle follow-up test execution themselves, it is acceptable to stop at successful compilation for the current change and leave test execution to the user.
 
 ## Commit & Pull Request Guidelines
 - Current history uses short imperative-style subjects (for example, `Template cleanup`). Keep subject lines concise and action-oriented.

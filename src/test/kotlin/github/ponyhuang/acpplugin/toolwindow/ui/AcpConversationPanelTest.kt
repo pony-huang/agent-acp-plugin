@@ -1,5 +1,6 @@
 package github.ponyhuang.acpplugin.toolwindow.ui
 
+import github.ponyhuang.acpplugin.MyBundle
 import github.ponyhuang.acpplugin.services.AcpSessionService
 import com.intellij.diff.contents.DocumentContent
 import com.intellij.diff.contents.EmptyContent
@@ -698,6 +699,45 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         }
     }
 
+    fun testToolCallRowRewrapsWhenHostWidthShrinks() {
+        val longToken = buildString {
+            repeat(12) { append("workspace_path_segment_0123456789/") }
+        }
+        val row = instantiateToolCallRow(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-wrap-shrink",
+                title = "Execute command with very long argument $longToken",
+                status = "completed",
+                kind = "execute"
+            )
+        )
+
+        val host = JPanel(BorderLayout()).apply {
+            setSize(460, 320)
+            add(row, BorderLayout.NORTH)
+        }
+
+        layoutRecursively(host)
+
+        val titleLabel = findAllByType(row, JBLabel::class.java)
+            .first { it.text.contains("Execute command with very long argument") }
+        val wideHeight = row.height
+        val widePreferredHeight = titleLabel.preferredSize.height
+
+        host.setSize(260, 320)
+        host.doLayout()
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        layoutRecursively(host)
+
+        assertTrue("labelWidth=${titleLabel.width} rowWidth=${row.width}", titleLabel.width <= row.width)
+        assertTrue(
+            "wideLabelHeight=$widePreferredHeight shrunkLabelHeight=${titleLabel.preferredSize.height}",
+            titleLabel.preferredSize.height >= widePreferredHeight
+        )
+        assertTrue("wideRow=$wideHeight shrunkRow=${row.height}", row.height >= wideHeight)
+    }
+
     fun testConversationRenderReusesThoughtPanelForThoughtTextGrowth() {
         val disposable = Disposer.newDisposable()
         val panel = ChatViewPanel(project, disposable)
@@ -1022,6 +1062,27 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertNull(hiddenSummary)
     }
 
+    fun testToolCallRowModelMapperBuildsNavigationTitleForReadableFile() {
+        myFixture.addFileToProject("src/Main.kt", "class Main")
+        val model = ToolCallRowModelMapper(project).map(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-read-model",
+                title = "Read file",
+                status = "completed",
+                kind = "read",
+                locations = listOf(locationInfo("src/Main.kt:12", "src/Main.kt", 12)),
+                contentSummary = "This content should stay hidden"
+            )
+        )
+
+        val title = model.title as ToolCallTitleModel.Navigable
+        assertEquals("Read", title.labelText)
+        assertEquals("Main.kt", title.navigationText)
+        assertNotNull(title.navigationTarget)
+        assertEquals("completed", model.status.status)
+        assertEquals("This content should stay hidden", model.status.summary)
+    }
+
     fun testReadToolCallRowFallsBackToLabelWhenFileDoesNotExist() {
         val row = instantiateToolCallRow(
             AcpSessionService.ToolCallInfo(
@@ -1043,6 +1104,14 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertNull(locationLabel)
     }
 
+    fun testToolCallNavigationResolverReturnsNullForMissingFile() {
+        val target = ToolCallNavigationResolver(project).resolve(
+            locationInfo("missing/File.kt:3", "missing/File.kt", 3)
+        )
+
+        assertNull(target)
+    }
+
     fun testNonRepeatedToolCallTitleRemainsIntact() {
         val row = instantiateToolCallRow(
             AcpSessionService.ToolCallInfo(
@@ -1059,7 +1128,7 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
         assertEquals(AllIcons.Actions.Edit, titleLabel!!.icon)
     }
 
-    fun testEditToolCallRowHidesBodyContent() {
+    fun testToolCallRowShowsDiffActionWhenDiffsExist() {
         val row = instantiateToolCallRow(
             AcpSessionService.ToolCallInfo(
                 toolCallId = "tool-diff-preview",
@@ -1077,26 +1146,13 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        try {
-            val diffContainer = row.javaClass.getDeclaredField("diffContainer").apply {
-                isAccessible = true
-            }.get(row) as JPanel
-            val detailsPanel = row.javaClass.getDeclaredField("detailsPanel").apply {
-                isAccessible = true
-            }.get(row) as JPanel
-            val openDiffLink = row.javaClass.getDeclaredField("openDiffLink").apply {
-                isAccessible = true
-            }.get(row) as ActionLink
+        val openDiffLinks = findAllByType(row, ActionLink::class.java)
+            .filter { it.text == MyBundle.message("toolcall.diff.openPreview") && it.isVisible }
 
-            assertEquals(0, detailsPanel.componentCount)
-            assertEquals(0, diffContainer.componentCount)
-            assertTrue(openDiffLink.isVisible)
-        } finally {
-            row.javaClass.getMethod("dispose").invoke(row)
-        }
+        assertEquals(1, openDiffLinks.size)
     }
 
-    fun testToolCallRowKeepsHiddenBodyPanelsOutOfConversation() {
+    fun testToolCallRowOmitsLegacyHiddenBodyPanels() {
         val row = instantiateToolCallRow(
             AcpSessionService.ToolCallInfo(
                 toolCallId = "tool-hidden-body",
@@ -1114,20 +1170,27 @@ class AcpConversationPanelTest : BasePlatformTestCase() {
             )
         )
 
-        val detailsPanel = row.javaClass.getDeclaredField("detailsPanel").apply {
-            isAccessible = true
-        }.get(row) as JPanel
-        val diffContainer = row.javaClass.getDeclaredField("diffContainer").apply {
-            isAccessible = true
-        }.get(row) as JPanel
         val titleLabel = findAllByType(row, JBLabel::class.java).firstOrNull { it.text == "Search workspace" }
 
         assertNotNull(titleLabel)
         assertEquals(AllIcons.Actions.Search, titleLabel!!.icon)
-        assertFalse(detailsPanel.isVisible)
-        assertFalse(diffContainer.isVisible)
-        assertEquals(0, detailsPanel.componentCount)
-        assertEquals(0, diffContainer.componentCount)
+        assertFalse(row.javaClass.declaredFields.any { it.name == "detailsPanel" || it.name == "diffContainer" })
+    }
+
+    fun testToolCallRowModelMapperPrefersFailureDetailsOverContentSummary() {
+        val model = ToolCallRowModelMapper(project).map(
+            AcpSessionService.ToolCallInfo(
+                toolCallId = "tool-failure-priority",
+                title = "Run command",
+                status = "failed",
+                kind = "execute",
+                failureDetails = "Failure details",
+                contentSummary = "Fallback summary"
+            )
+        )
+
+        assertTrue(model.title is ToolCallTitleModel.Default)
+        assertEquals("Failure details", model.status.summary)
     }
 
     fun testDiffPreviewFactoryUsesDocumentContentForBothSidesWhenBaselineExists() {
@@ -1827,8 +1890,10 @@ All artifacts created! Ready for implementation.
         ApplicationManager.getApplication().invokeAndWait {
             renderMethod.invoke(panel, state)
         }
-        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        repeat(4) {
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            ApplicationManager.getApplication().invokeAndWait {}
+        }
     }
 
     private fun disableBinding(panel: ChatViewPanel) {
@@ -1839,23 +1904,25 @@ All artifacts created! Ready for implementation.
     }
 
     private fun messageRowComponent(panel: ChatViewPanel, messageId: String): javax.swing.JComponent {
-        val controllers = panel.javaClass.getDeclaredField("messageRowControllers").apply {
-            isAccessible = true
-        }.get(panel) as Map<*, *>
-        val controller = controllers[messageId] ?: run {
-            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-            val refreshedControllers = panel.javaClass.getDeclaredField("messageRowControllers").apply {
+        repeat(4) {
+            val controllers = panel.javaClass.getDeclaredField("messageRowControllers").apply {
                 isAccessible = true
             }.get(panel) as Map<*, *>
-            checkNotNull(refreshedControllers[messageId]) {
-                "Missing row controller for messageId=$messageId available=${refreshedControllers.keys}"
+            val controller = controllers[messageId]
+            if (controller != null) {
+                val componentField = controller.javaClass.getDeclaredField("component").apply {
+                    isAccessible = true
+                }
+                return componentField.get(controller) as javax.swing.JComponent
             }
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
         }
-        val componentField = controller.javaClass.getDeclaredField("component").apply {
+
+        val refreshedControllers = panel.javaClass.getDeclaredField("messageRowControllers").apply {
             isAccessible = true
-        }
-        return componentField.get(controller) as javax.swing.JComponent
+        }.get(panel) as Map<*, *>
+        error("Missing row controller for messageId=$messageId available=${refreshedControllers.keys}")
     }
 
     private fun mountedMessageRows(panel: ChatViewPanel): List<javax.swing.JComponent> {
