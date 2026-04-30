@@ -5,17 +5,23 @@ import github.ponyhuang.acpplugin.settings.AcpSettingsConfigurable
 import github.ponyhuang.acpplugin.toolwindow.ToolWindowComposerState
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.*
-import com.intellij.openapi.actionSystem.ex.CustomComponentAction
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionToolbar
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.ui.AnimatedIcon
+import com.intellij.ui.components.panels.NonOpaquePanel
 import com.intellij.util.ui.JBEmptyBorder
 import com.intellij.util.ui.JBUI
+import java.awt.BorderLayout
 import javax.swing.JComponent
 import javax.swing.JLabel
+import javax.swing.JPanel
 
 class ChatViewToolbar(
     private val project: Project,
@@ -28,11 +34,6 @@ class ChatViewToolbar(
     private val isSessionConnected: () -> Boolean = { false },
     private val getComposerState: () -> ToolWindowComposerState = { ToolWindowComposerState.IDLE }
 ) : Disposable {
-    private val connectionStatusIndicators = mutableListOf<JLabel>()
-
-    val component: JComponent
-        get() = toolbar.component
-
     private val newSessionAction = object : DumbAwareAction(
         MyBundle.message("toolbar.newSession"),
         MyBundle.message("toolbar.newSessionDescription"),
@@ -52,6 +53,7 @@ class ChatViewToolbar(
             e.presentation.isEnabled = isNewSessionActionEnabled()
         }
     }
+
     private val sessionsAction = object : DumbAwareAction(
         MyBundle.message("toolbar.sessions"),
         MyBundle.message("toolbar.sessionsDescription"),
@@ -71,25 +73,7 @@ class ChatViewToolbar(
             e.presentation.isEnabled = isSessionActionEnabled()
         }
     }
-    private val connectionStatusAction = object : DumbAwareAction(), CustomComponentAction {
-        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
-        override fun actionPerformed(e: AnActionEvent) = Unit
-
-        override fun update(e: AnActionEvent) {
-            e.presentation.isEnabled = false
-            e.presentation.isVisible = true
-        }
-
-        override fun createCustomComponent(presentation: Presentation, place: String): JComponent {
-            return JLabel().apply {
-                isVisible = false
-                toolTipText = MyBundle.message("toolbar.connectionStatus")
-                border = JBUI.Borders.empty(0, 4, 0, 2)
-                connectionStatusIndicators += this
-            }
-        }
-    }
     private val settingsAction = object : DumbAwareAction(
         MyBundle.message("toolbar.settings"),
         MyBundle.message("toolbar.settingsDescription"),
@@ -106,13 +90,29 @@ class ChatViewToolbar(
             e.presentation.isEnabled = true
         }
     }
+
     private val toolbarGroup = DefaultActionGroup().apply {
         add(newSessionAction)
         add(sessionsAction)
-        add(connectionStatusAction)
         add(settingsAction)
     }
-    private val toolbar = createToolbar()
+
+    private val actionsToolbar = createActionsToolbar()
+    private val statusIconLabel = JLabel()
+    private val statusPanel = NonOpaquePanel(BorderLayout()).apply {
+        name = "ChatToolbarStatusPanel"
+        isVisible = false
+        border = JBUI.Borders.emptyLeft(12)
+        toolTipText = MyBundle.message("toolbar.connectionStatus")
+        add(statusIconLabel, BorderLayout.CENTER)
+    }
+    private val rootPanel = JPanel(BorderLayout()).apply {
+        add(actionsToolbar.component, BorderLayout.CENTER)
+        add(statusPanel, BorderLayout.EAST)
+    }
+
+    val component: JComponent
+        get() = rootPanel
 
     fun update() {
         runOnEdt {
@@ -125,26 +125,14 @@ class ChatViewToolbar(
 
     fun updateConnectionStatus() {
         val state = getComposerState()
-        val connected = isSessionConnected()
-
-        val isVisible = when {
-            state == ToolWindowComposerState.CONNECTING -> true
-            state == ToolWindowComposerState.SENDING && connected -> true
-            state == ToolWindowComposerState.IDLE && connected -> true
-            else -> false
+        if (state == ToolWindowComposerState.IDLE || (state == ToolWindowComposerState.SENDING && !isSessionConnected())) {
+            statusPanel.isVisible = false
+            statusIconLabel.icon = null
+            return
         }
 
-        val icon = when {
-            state == ToolWindowComposerState.CONNECTING -> AnimatedIcon.Default.INSTANCE
-            state == ToolWindowComposerState.SENDING && connected -> AllIcons.Actions.Suspend
-            state == ToolWindowComposerState.IDLE && connected -> AllIcons.Actions.Suspend
-            else -> null
-        }
-
-        connectionStatusIndicators.forEach { indicator ->
-            indicator.isVisible = isVisible
-            indicator.icon = icon
-        }
+        statusPanel.isVisible = true
+        statusIconLabel.icon = AnimatedIcon.Default.INSTANCE
     }
 
     internal fun isStopActionEnabled(): Boolean = false
@@ -166,12 +154,11 @@ class ChatViewToolbar(
     }
 
     private fun refreshActions() {
-        toolbar.updateActionsAsync()
+        actionsToolbar.updateActionsAsync()
     }
 
-    private fun createToolbar(): ActionToolbar {
+    private fun createActionsToolbar(): ActionToolbar {
         return ActionManager.getInstance().createActionToolbar("AcpConversationToolbar", toolbarGroup, true).apply {
-            targetComponent = component
             component.border = JBEmptyBorder(5, 7, 5, 7)
             component.isOpaque = true
         }

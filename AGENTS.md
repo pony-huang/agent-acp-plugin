@@ -39,7 +39,7 @@ Use Java/Kotlin toolchain 21 as configured in Gradle.
 ## IntelliJ Plugin API Reference Baseline
 - When the task is about JetBrains IntelliJ Platform / IntelliJ Plugin API usage, prefer reading local IntelliJ Community source at `D:\workspace\intellij-community`.
 - For concrete internal usage examples, prefer checking `D:\workspace\intellij-community\platform\platform-impl\internal\src\com\intellij\internal` before falling back to generic examples.
-- **JetBrains UI 开发指南**: `docs/JETBRAINS_UI_DEVELOPMENT_GUIDE.md` - 整理自 IntelliJ Community 的 UI 示例代码，包含对话框、Kotlin UI DSL、组件、验证、布局等开发参考。
+- **JetBrains UI Development Guide**: `docs/JETBRAINS_UI_DEVELOPMENT_GUIDE.md` - Compiled from IntelliJ Community UI example code, including development references for dialogs, Kotlin UI DSL, components, validation, layout, and more.
 - **IntelliJ SDK Code Samples**: https://github.com/JetBrains/intellij-sdk-code-samples - Official JetBrains collection of plugin development examples covering action, dialog, toolwindow, projectWizard, and more.
 - Use local IntelliJ source and bundled examples as the primary reference for IntelliJ Plugin API behavior in this repository.
 
