@@ -9,8 +9,13 @@ import com.agentclientprotocol.common.ClientSessionOperations
 import com.agentclientprotocol.common.SessionCreationParameters
 import com.agentclientprotocol.model.*
 import com.agentclientprotocol.protocol.Protocol
+import com.agentclientprotocol.rpc.JsonRpcMessage
+import com.agentclientprotocol.rpc.JsonRpcNotification
 import com.agentclientprotocol.transport.StdioTransport
 import com.agentclientprotocol.transport.Transport
+import com.agentclientprotocol.transport.CloseListener
+import com.agentclientprotocol.transport.ErrorListener
+import com.agentclientprotocol.transport.MessageListener
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
@@ -20,7 +25,14 @@ import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.nio.file.Paths
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -31,6 +43,10 @@ import kotlin.io.path.writeText
 
 private const val PROTOCOL_CLOSE_TIMEOUT_MS = 5_000L
 private const val PROCESS_EXIT_TIMEOUT_MS = 2_000L
+private const val SESSION_UPDATE_METHOD = "session/update"
+private const val SESSION_UPDATE_DISCRIMINATOR = "sessionUpdate"
+private const val USAGE_UPDATE_TYPE = "usage_update"
+private const val INVALID_USAGE_UPDATE_TYPE = "usage_update_invalid_null_used"
 
 data class ProcessTransportHandle(
     val transport: Transport,
@@ -52,11 +68,14 @@ fun createProcessStdioTransport(
 
     val process = processBuilder.start()
     return ProcessTransportHandle(
-        transport = StdioTransport(
-            parentScope = coroutineScope,
-            ioDispatcher = Dispatchers.IO,
-            input = process.inputStream.asSource().buffered(),
-            output = process.outputStream.asSink().buffered()
+        transport = SanitizingTransport(
+            delegate = StdioTransport(
+                parentScope = coroutineScope,
+                ioDispatcher = Dispatchers.IO,
+                input = process.inputStream.asSource().buffered(),
+                output = process.outputStream.asSink().buffered()
+            ),
+            logger = logger
         ),
         process = process
     )
@@ -82,6 +101,77 @@ private fun applyEnvironmentVariables(processBuilder: ProcessBuilder, envs: List
 }
 
 private val logger: Logger = Logger.getInstance(DefaultClientSessionOperations::class.java)
+
+private class SanitizingTransport(
+    private val delegate: Transport,
+    private val logger: Logger
+) : Transport {
+    private val messageListeners = CopyOnWriteArrayList<MessageListener>()
+    private val errorListeners = CopyOnWriteArrayList<ErrorListener>()
+    private val closeListeners = CopyOnWriteArrayList<CloseListener>()
+
+    override val state = delegate.state
+
+    init {
+        delegate.onMessage { message ->
+            val sanitized = sanitizeIncomingJsonRpcMessage(message)
+            if (sanitized !== message) {
+                logger.warn("Received ACP usage_update with null used; downgrading notification to unknown update")
+            }
+            messageListeners.forEach { listener -> listener(sanitized) }
+        }
+        delegate.onError { error -> errorListeners.forEach { listener -> listener(error) } }
+        delegate.onClose { closeListeners.forEach { listener -> listener() } }
+    }
+
+    override fun start() {
+        delegate.start()
+    }
+
+    override fun send(message: JsonRpcMessage) {
+        delegate.send(message)
+    }
+
+    override fun onMessage(handler: MessageListener) {
+        messageListeners += handler
+    }
+
+    override fun onError(handler: ErrorListener) {
+        errorListeners += handler
+    }
+
+    override fun onClose(handler: CloseListener) {
+        closeListeners += handler
+    }
+
+    override fun close() {
+        delegate.close()
+    }
+}
+
+internal fun sanitizeIncomingJsonRpcMessage(message: JsonRpcMessage): JsonRpcMessage {
+    if (message !is JsonRpcNotification || message.method.name != SESSION_UPDATE_METHOD) {
+        return message
+    }
+    val params = message.params as? JsonObject ?: return message
+    val update = params["update"]?.jsonObject ?: return message
+    val updateType = update[SESSION_UPDATE_DISCRIMINATOR]?.jsonPrimitive?.contentOrNull
+    if (updateType != USAGE_UPDATE_TYPE || update["used"] != JsonNull) {
+        return message
+    }
+
+    val sanitizedUpdate = JsonObject(
+        update.toMutableMap().apply {
+            put(SESSION_UPDATE_DISCRIMINATOR, JsonPrimitive(INVALID_USAGE_UPDATE_TYPE))
+        }
+    )
+    val sanitizedParams = JsonObject(
+        params.toMutableMap().apply {
+            put("update", sanitizedUpdate)
+        }
+    )
+    return message.copy(params = sanitizedParams)
+}
 
 class DefaultClientSessionOperations(
     val sessionUpdateSink: suspend (SessionUpdate) -> Unit,
