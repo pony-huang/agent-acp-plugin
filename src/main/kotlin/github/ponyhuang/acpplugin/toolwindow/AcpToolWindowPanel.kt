@@ -6,32 +6,26 @@ import github.ponyhuang.acpplugin.services.AgentNotifier
 import github.ponyhuang.acpplugin.services.AgentRegistry
 import github.ponyhuang.acpplugin.services.AcpAgentIconService
 import github.ponyhuang.acpplugin.services.AcpSessionService
-import github.ponyhuang.acpplugin.toolwindow.action.AgentComboBoxAction
-import github.ponyhuang.acpplugin.toolwindow.ui.ChatViewPanel
-import github.ponyhuang.acpplugin.toolwindow.ui.UserInputPanel
-import github.ponyhuang.acpplugin.toolwindow.ui.PlanEntriesPanel
+import github.ponyhuang.acpplugin.toolwindow.session.SessionPopupPresenter
+import github.ponyhuang.acpplugin.toolwindow.support.ToolWindowNotifier
+import github.ponyhuang.acpplugin.toolwindow.ui.chat.ChatViewPanel
+import github.ponyhuang.acpplugin.toolwindow.ui.input.UserInputPanel
+import github.ponyhuang.acpplugin.toolwindow.ui.input.selector.AgentComboBoxAction
+import github.ponyhuang.acpplugin.toolwindow.ui.plan.PlanEntriesPanel
 import com.agentclientprotocol.model.AvailableCommandInput
-import github.ponyhuang.acpplugin.toolwindow.ui.ChatViewToolbar
+import github.ponyhuang.acpplugin.toolwindow.ui.toolbar.ChatViewToolbar
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
-import com.intellij.openapi.ui.popup.JBPopup
-import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.util.Disposer
-import com.intellij.notification.Notification
-import com.intellij.notification.NotificationType
-import com.intellij.notification.Notifications
-import com.intellij.ui.ColoredListCellRenderer
-import com.intellij.ui.SimpleTextAttributes
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.JPanel
-import javax.swing.JList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +58,7 @@ class AcpToolWindowPanel(
     private val sessionService = project.service<AcpSessionService>()
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val isListingSessions = MutableStateFlow(false)
+    private val notifier = ToolWindowNotifier(project)
 
     // Create agent selection notifier for linkage
     private val agentNotifier = AgentNotifier()
@@ -106,7 +101,7 @@ class AcpToolWindowPanel(
         connectAgent = { request -> connectSelectedAgent(request) },
         onSwitchFailed = { agent, t ->
             logger.warn("Failed to switch ACP session to ${agent.displayName}", t)
-            notifyError(
+            notifier.error(
                 groupTitle = MyBundle.message("notification.connectionError"),
                 title = MyBundle.message("notification.failedConnect", agent.displayName),
                 content = t.message ?: MyBundle.message("notification.unknownError")
@@ -117,7 +112,10 @@ class AcpToolWindowPanel(
         isVisible = false
     }
     private val composerContainer: JPanel = JPanel(BorderLayout())
-    private var sessionsPopup: JBPopup? = null
+    private val sessionPopupPresenter = SessionPopupPresenter(
+        anchorComponent = { conversationChatViewToolbar.component },
+        buildSubtitle = ::buildSessionSubtitle
+    )
     private val lastComposerState = AtomicReference<ToolWindowComposerState?>(null)
 
     init {
@@ -138,14 +136,10 @@ class AcpToolWindowPanel(
                         sessionService.cancel()
                     } else if (sessionService.isConnected.value) {
                         disconnectCurrentSession()
-                        Notifications.Bus.notify(
-                            Notification(
-                                MyBundle.message("notification.acpConnection"),
-                                MyBundle.message("notification.disconnected"),
-                                MyBundle.message("notification.sessionDisconnected"),
-                                NotificationType.INFORMATION
-                            ),
-                            project
+                        notifier.info(
+                            groupTitle = MyBundle.message("notification.acpConnection"),
+                            title = MyBundle.message("notification.disconnected"),
+                            content = MyBundle.message("notification.sessionDisconnected")
                         )
                     } else {
                         val agent = userInputPanel.selectedAgent() ?: return@launch
@@ -161,7 +155,7 @@ class AcpToolWindowPanel(
                     } else {
                         MyBundle.message("notification.failedConnect", selectedAgentName ?: MyBundle.message("combobox.selectAgent"))
                     }
-                    notifyError(
+                    notifier.error(
                         groupTitle = MyBundle.message("notification.connectionError"),
                         title = title,
                         content = t.message ?: MyBundle.message("notification.unknownError")
@@ -314,7 +308,10 @@ class AcpToolWindowPanel(
         }
         Disposer.register(disposable, controller)
         Disposer.register(disposable, conversationChatViewToolbar)
-        Disposer.register(disposable) { uiScope.cancel() }
+        Disposer.register(disposable) {
+            sessionPopupPresenter.cancel()
+            uiScope.cancel()
+        }
         composerContainer.isOpaque = false
         composerContainer.add(planEntriesPanel, BorderLayout.NORTH)
         composerContainer.add(userInputPanel, BorderLayout.CENTER)
@@ -337,14 +334,10 @@ class AcpToolWindowPanel(
         logger.info("[Sessions] Selected agent at request time: ${agent?.displayName ?: "<none>"}")
         if (agent == null) {
             logger.warn("[Sessions] No agent selected, cannot list sessions")
-            Notifications.Bus.notify(
-                Notification(
-                    MyBundle.message("notification.acpSessions"),
-                    MyBundle.message("notification.noAgentSelected"),
-                    MyBundle.message("notification.selectAgentBeforeSession"),
-                    NotificationType.WARNING
-                ),
-                project
+            notifier.warning(
+                groupTitle = MyBundle.message("notification.acpSessions"),
+                title = MyBundle.message("notification.noAgentSelected"),
+                content = MyBundle.message("notification.selectAgentBeforeSession")
             )
             return
         }
@@ -367,14 +360,10 @@ class AcpToolWindowPanel(
                 throw t
             } catch (t: Throwable) {
                 logger.warn("Failed to list ACP sessions", t)
-                Notifications.Bus.notify(
-                    Notification(
-                        MyBundle.message("notification.acpSessions"),
-                        MyBundle.message("notification.failedListSessions"),
-                        t.message ?: MyBundle.message("notification.unknownError"),
-                        NotificationType.ERROR
-                    ),
-                    project
+                notifier.error(
+                    groupTitle = MyBundle.message("notification.acpSessions"),
+                    title = MyBundle.message("notification.failedListSessions"),
+                    content = t.message ?: MyBundle.message("notification.unknownError")
                 )
             } finally {
                 isListingSessions.value = false
@@ -428,28 +417,20 @@ class AcpToolWindowPanel(
             details = "agentId=${agent.id}, connectedAgentId=${connectedAgentId ?: "<none>"}, " +
                 "serviceConnected=${sessionService.isConnected.value}, serviceLoading=${sessionService.isLoading.value}"
         )
-        Notifications.Bus.notify(
-            Notification(
-                MyBundle.message("notification.acpConnection"),
-                MyBundle.message("notification.connectedTo", agent.displayName),
-                MyBundle.message("notification.sessionEstablished"),
-                NotificationType.INFORMATION
-            ),
-            project
+        notifier.info(
+            groupTitle = MyBundle.message("notification.acpConnection"),
+            title = MyBundle.message("notification.connectedTo", agent.displayName),
+            content = MyBundle.message("notification.sessionEstablished")
         )
     }
 
     internal fun createNewSession() {
         val agent = userInputPanel.selectedAgent()
         if (agent == null) {
-            Notifications.Bus.notify(
-                Notification(
-                    MyBundle.message("notification.acpSessions"),
-                    MyBundle.message("notification.noAgentSelected"),
-                    MyBundle.message("notification.selectAgentBeforeSession"),
-                    NotificationType.WARNING
-                ),
-                project
+            notifier.warning(
+                groupTitle = MyBundle.message("notification.acpSessions"),
+                title = MyBundle.message("notification.noAgentSelected"),
+                content = MyBundle.message("notification.selectAgentBeforeSession")
             )
             return
         }
@@ -460,18 +441,14 @@ class AcpToolWindowPanel(
                 logger.info("Creating a new ACP session for agent ${agent.displayName}")
                 sessionService.createSession(agent, cwd)
                 connectedAgentId = agent.id
-                Notifications.Bus.notify(
-                    Notification(
-                        MyBundle.message("notification.acpSessions"),
-                        MyBundle.message("notification.newSessionCreated"),
-                        MyBundle.message("notification.sessionCreatedFor", agent.displayName),
-                        NotificationType.INFORMATION
-                    ),
-                    project
+                notifier.info(
+                    groupTitle = MyBundle.message("notification.acpSessions"),
+                    title = MyBundle.message("notification.newSessionCreated"),
+                    content = MyBundle.message("notification.sessionCreatedFor", agent.displayName)
                 )
             } catch (t: Throwable) {
                 logger.warn("Failed to create a new ACP session for ${agent.displayName}", t)
-                notifyError(
+                notifier.error(
                     groupTitle = MyBundle.message("notification.acpSessions"),
                     title = MyBundle.message("notification.failedCreateSession"),
                     content = t.message ?: MyBundle.message("notification.unknownError")
@@ -486,60 +463,9 @@ class AcpToolWindowPanel(
         sessions: List<AcpSessionService.SessionListItem>
     ) {
         logger.info("[Sessions] Creating popup UI with ${sessions.size} sessions")
-        sessionsPopup?.cancel()
-        val listModel = com.intellij.ui.CollectionListModel(sessions)
-        val sessionList = com.intellij.ui.components.JBList(listModel).apply {
-            visibleRowCount = 8
-            selectionMode = javax.swing.ListSelectionModel.SINGLE_SELECTION
-            cellRenderer = object : ColoredListCellRenderer<AcpSessionService.SessionListItem>() {
-                override fun customizeCellRenderer(
-                    list: JList<out AcpSessionService.SessionListItem>,
-                    value: AcpSessionService.SessionListItem?,
-                    index: Int,
-                    selected: Boolean,
-                    hasFocus: Boolean
-                ) {
-                    if (value == null) {
-                        return
-                    }
-                    append(value.title?.takeIf { it.isNotBlank() } ?: value.sessionId, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                    append("  ${buildSessionSubtitle(value)}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                }
-            }
-            addMouseListener(object : java.awt.event.MouseAdapter() {
-                override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                    if (e.clickCount >= 1) {
-                        selectedValue?.let { session ->
-                            sessionsPopup?.cancel()
-                            resumeSession(agent, cwd, session)
-                        }
-                    }
-                }
-            })
+        sessionPopupPresenter.show(sessions) { session ->
+            resumeSession(agent, cwd, session)
         }
-
-        if (sessions.isNotEmpty()) {
-            sessionList.selectedIndex = 0
-        } else {
-            sessionList.emptyText.text = MyBundle.message("popup.noSessions")
-        }
-
-        val popupContent = com.intellij.ui.components.JBScrollPane(sessionList).apply {
-            border = JBUI.Borders.empty()
-            preferredSize = Dimension(JBUI.scale(460), JBUI.scale(220))
-            horizontalScrollBarPolicy = com.intellij.ui.components.JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-        }
-
-        sessionsPopup = JBPopupFactory.getInstance()
-            .createComponentPopupBuilder(popupContent, sessionList)
-            .setTitle(MyBundle.message("popup.sessions"))
-            .setResizable(false)
-            .setMovable(false)
-            .setRequestFocus(true)
-            .setCancelOnClickOutside(true)
-            .setCancelOnOtherWindowOpen(true)
-            .createPopup()
-        sessionsPopup?.showUnderneathOf(conversationChatViewToolbar.component)
     }
 
     internal fun buildLoadedSessionNotificationContent(
@@ -561,36 +487,20 @@ class AcpToolWindowPanel(
             try {
                 sessionService.resumeSession(sessionId, agent, cwd)
                 connectedAgentId = agent.id
-                Notifications.Bus.notify(
-                    Notification(
-                        MyBundle.message("notification.acpSessions"),
-                        MyBundle.message("notification.sessionResumed"),
-                        MyBundle.message("notification.loadedSessionDetails", buildLoadedSessionNotificationContent(session)),
-                        NotificationType.INFORMATION
-                    ),
-                    project
+                notifier.info(
+                    groupTitle = MyBundle.message("notification.acpSessions"),
+                    title = MyBundle.message("notification.sessionResumed"),
+                    content = MyBundle.message("notification.loadedSessionDetails", buildLoadedSessionNotificationContent(session))
                 )
             } catch (t: Throwable) {
                 logger.warn("Failed to resume ACP session $sessionId", t)
-                notifyError(
+                notifier.error(
                     groupTitle = MyBundle.message("notification.acpSessions"),
                     title = MyBundle.message("notification.failedResumeSession"),
                     content = t.message ?: MyBundle.message("notification.unknownError")
                 )
             }
         }
-    }
-
-    private fun notifyError(groupTitle: String, title: String, content: String) {
-        Notifications.Bus.notify(
-            Notification(
-                groupTitle,
-                title,
-                content,
-                NotificationType.ERROR
-            ),
-            project
-        )
     }
 
     private fun updatePlanEntries(entries: List<AcpSessionService.SessionPlanItem>) {

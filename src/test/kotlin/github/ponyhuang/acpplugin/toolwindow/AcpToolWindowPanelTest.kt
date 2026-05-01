@@ -6,8 +6,8 @@ import com.agentclientprotocol.model.PlanEntryPriority
 import com.agentclientprotocol.model.PlanEntryStatus
 import com.agentclientprotocol.model.SessionUpdate
 import github.ponyhuang.acpplugin.services.AcpSessionService
-import github.ponyhuang.acpplugin.toolwindow.ui.UserInputPanel
-import github.ponyhuang.acpplugin.toolwindow.ui.PlanEntriesPanel
+import github.ponyhuang.acpplugin.toolwindow.ui.input.UserInputPanel
+import github.ponyhuang.acpplugin.toolwindow.ui.plan.PlanEntriesPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
