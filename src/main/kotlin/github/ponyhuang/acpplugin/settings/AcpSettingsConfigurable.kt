@@ -47,12 +47,6 @@ class AcpSettingsConfigurable : Configurable {
             }
         )
         settingsComponent = component
-        component.setGeneralSettings(
-            autoConnectEnabled = settings.autoConnectEnabled,
-            showStartupNotifications = settings.showStartupNotifications,
-            sessionsStoragePath = settings.sessionsStoragePath,
-            effectiveSessionsPath = settings.getEffectiveSessionsPath(),
-        )
         component.setRegistryData(
             snapshot = registryService.getCachedSnapshotOrNull()
                 ?: runCatching { registryService.getSnapshot() }.getOrNull(),
@@ -61,32 +55,12 @@ class AcpSettingsConfigurable : Configurable {
         return component.getPanel()
     }
 
-    override fun isModified(): Boolean {
-        val component = settingsComponent ?: return false
-        return component.isGeneralSettingsModified(
-            autoConnectEnabled = settings.autoConnectEnabled,
-            showStartupNotifications = settings.showStartupNotifications,
-            sessionsStoragePath = settings.sessionsStoragePath,
-        )
-    }
+    override fun isModified(): Boolean = false
 
-    override fun apply() {
-        val component = settingsComponent ?: return
-        val generalSettings = component.getGeneralSettings()
-        settings.autoConnectEnabled = generalSettings.autoConnectEnabled
-        settings.showStartupNotifications = generalSettings.showStartupNotifications
-        settings.sessionsStoragePath = generalSettings.sessionsStoragePath
-        notifyProjectsConfigChanged()
-    }
+    override fun apply() = Unit
 
     override fun reset() {
         val component = settingsComponent ?: return
-        component.setGeneralSettings(
-            autoConnectEnabled = settings.autoConnectEnabled,
-            showStartupNotifications = settings.showStartupNotifications,
-            sessionsStoragePath = settings.sessionsStoragePath,
-            effectiveSessionsPath = settings.getEffectiveSessionsPath(),
-        )
         component.setRegistryData(
             snapshot = registryService.getCachedSnapshotOrNull(),
             installedAgents = settings.installedAgents

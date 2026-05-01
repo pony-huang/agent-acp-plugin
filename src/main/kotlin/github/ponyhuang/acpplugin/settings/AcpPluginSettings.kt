@@ -21,11 +21,6 @@ class AcpPluginSettings : PersistentStateComponent<AcpPluginSettings> {
     // Legacy settings retained for compatibility and migration from earlier versions.
     var agentSettings: MutableList<LegacyAgentSetting> = mutableListOf()
 
-    // General plugin settings
-    var autoConnectEnabled: Boolean = false
-    var showStartupNotifications: Boolean = true
-    var sessionsStoragePath: String = ""
-
     // Registry metadata
     var registryLastRefreshMillis: Long = 0L
 
@@ -83,9 +78,6 @@ class AcpPluginSettings : PersistentStateComponent<AcpPluginSettings> {
     override fun loadState(state: AcpPluginSettings) {
         installedAgents = state.installedAgents.toMutableList()
         agentSettings = state.agentSettings.toMutableList()
-        autoConnectEnabled = state.autoConnectEnabled
-        showStartupNotifications = state.showStartupNotifications
-        sessionsStoragePath = state.sessionsStoragePath
         registryLastRefreshMillis = state.registryLastRefreshMillis
 
         migrateLegacyAgentsIfNeeded()
@@ -123,22 +115,6 @@ class AcpPluginSettings : PersistentStateComponent<AcpPluginSettings> {
 
     fun updateRegistryRefreshTimestamp(timestampMillis: Long) {
         registryLastRefreshMillis = timestampMillis
-    }
-
-    /**
-     * Get the effective sessions storage path.
-     */
-    fun getEffectiveSessionsPath(): String {
-        return sessionsStoragePath.ifBlank { getDefaultSessionsPath() }
-    }
-
-    private fun getDefaultSessionsPath(): String {
-        val configPath = System.getProperty("idea.config.path")
-        return if (configPath != null) {
-            "$configPath/ACPChat"
-        } else {
-            "${System.getProperty("user.home")}/.acpchat"
-        }
     }
 
     private fun migrateLegacyAgentsIfNeeded() {
