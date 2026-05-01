@@ -1,10 +1,10 @@
 package github.ponyhuang.acpplugin.settings
 
 import github.ponyhuang.acpplugin.MyBundle
-import github.ponyhuang.acpplugin.services.AcpAgentInstallationService
 import github.ponyhuang.acpplugin.services.AcpAgentIconService
 import github.ponyhuang.acpplugin.services.AcpAgentRegistryService
 import github.ponyhuang.acpplugin.services.AcpAgentsConfigService
+import github.ponyhuang.acpplugin.utils.AgentInstallationUtil
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
@@ -19,8 +19,6 @@ class AcpSettingsConfigurable : Configurable {
     private val settings get() = AcpPluginSettings.getInstance()
     private val registryService: AcpAgentRegistryService
         get() = ApplicationManager.getApplication().getService(AcpAgentRegistryService::class.java)
-    private val installationService: AcpAgentInstallationService
-        get() = ApplicationManager.getApplication().getService(AcpAgentInstallationService::class.java)
     private val iconService: AcpAgentIconService
         get() = ApplicationManager.getApplication().getService(AcpAgentIconService::class.java)
 
@@ -102,13 +100,13 @@ class AcpSettingsConfigurable : Configurable {
         if (installedAgent != null && !forceReinstall) {
             return
         }
-        val resultHolder = arrayOfNulls<AcpAgentInstallationService.InstallResult>(1)
+        val resultHolder = arrayOfNulls<AgentInstallationUtil.InstallResult>(1)
         val failureHolder = arrayOfNulls<Throwable>(1)
         ProgressManager.getInstance().runProcessWithProgressSynchronously(
             {
                 try {
-                    installedAgent?.let { installationService.uninstallAgent(it) }
-                    resultHolder[0] = installationService.installAgent(registryAgent)
+                    installedAgent?.let { AgentInstallationUtil.uninstallAgent(it) }
+                    resultHolder[0] = AgentInstallationUtil.installAgent(registryAgent)
                 } catch (t: Throwable) {
                     failureHolder[0] = t
                 }
@@ -133,7 +131,7 @@ class AcpSettingsConfigurable : Configurable {
     }
 
     private fun uninstallInstalledAgent(installedAgent: AcpPluginSettings.InstalledAgentSetting) {
-        installationService.uninstallAgent(installedAgent)
+        AgentInstallationUtil.uninstallAgent(installedAgent)
         if (installedAgent.registryAgentId.isNotBlank()) {
             settings.removeInstalledAgentByRegistryId(installedAgent.registryAgentId)
         } else {

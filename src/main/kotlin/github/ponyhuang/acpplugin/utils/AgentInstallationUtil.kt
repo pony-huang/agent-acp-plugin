@@ -1,11 +1,11 @@
-package github.ponyhuang.acpplugin.services
+package github.ponyhuang.acpplugin.utils
 
 import github.ponyhuang.acpplugin.MyBundle
 import github.ponyhuang.acpplugin.settings.AcpPluginSettings
 import com.intellij.openapi.application.PathManager
-import com.intellij.openapi.components.Service
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.io.Decompressor
+import github.ponyhuang.acpplugin.services.InstallMethod
 import java.io.IOException
 import java.net.URI
 import java.net.http.HttpClient
@@ -19,8 +19,7 @@ import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
 import kotlin.io.path.name
 
-@Service(Service.Level.APP)
-class AcpAgentInstallationService {
+object AgentInstallationUtil {
     data class InstallResult(
         val installedAgent: AcpPluginSettings.InstalledAgentSetting,
         val installPath: Path?,
@@ -31,7 +30,7 @@ class AcpAgentInstallationService {
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build()
 
-    fun installAgent(agent: AcpAgentRegistryService.RegistryAgent): InstallResult {
+    fun installAgent(agent: github.ponyhuang.acpplugin.services.AcpAgentRegistryService.RegistryAgent): InstallResult {
         val installMethod = agent.distribution.primaryInstallMethod()
             ?: throw IOException("Agent '${agent.name}' does not expose a supported installation method.")
 
@@ -88,7 +87,7 @@ class AcpAgentInstallationService {
         }
     }
 
-    private fun installBinaryAgent(agent: AcpAgentRegistryService.RegistryAgent): InstallResult {
+    private fun installBinaryAgent(agent: github.ponyhuang.acpplugin.services.AcpAgentRegistryService.RegistryAgent): InstallResult {
         val platformKey = currentPlatformKey()
         val distribution = agent.distribution.binary[platformKey]
             ?: throw IOException("Agent '${agent.name}' does not provide a binary for $platformKey.")
@@ -148,7 +147,7 @@ class AcpAgentInstallationService {
         return "$os-$arch"
     }
 
-    private fun installRoot(agent: AcpAgentRegistryService.RegistryAgent): Path {
+    private fun installRoot(agent: github.ponyhuang.acpplugin.services.AcpAgentRegistryService.RegistryAgent): Path {
         return Path.of(PathManager.getConfigPath(), "ACPChat", "agents", agent.id, agent.version)
     }
 

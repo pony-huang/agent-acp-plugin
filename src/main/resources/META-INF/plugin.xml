@@ -11,7 +11,6 @@
         <postStartupActivity implementation="github.ponyhuang.acpplugin.startup.MyProjectActivity" />
         <toolWindow factoryClass="github.ponyhuang.acpplugin.toolwindow.AcpToolWindowFactory" id="ACP Chat"/>
         <applicationService serviceImplementation="github.ponyhuang.acpplugin.services.AcpAgentRegistryService"/>
-        <applicationService serviceImplementation="github.ponyhuang.acpplugin.services.AcpAgentInstallationService"/>
         <applicationService serviceImplementation="github.ponyhuang.acpplugin.settings.AcpPluginSettings"/>
         <applicationConfigurable
                 parentId="tools"
