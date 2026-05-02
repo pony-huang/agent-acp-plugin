@@ -587,6 +587,22 @@ class AcpSessionService(private val project: Project) : Disposable {
                     is Event.PromptResponseEvent -> handlePromptResponse(event.response)
                 }
             }
+        } catch (t: Throwable) {
+            logger.warn("[SessionLifecycle][prompt] sendPrompt failed: ${t.javaClass.simpleName}: ${t.message}")
+            // Check if this is a client disconnection scenario
+            val isDisconnection = t is java.io.IOException ||
+                t is kotlinx.coroutines.CancellationException ||
+                t.message?.contains("Broken pipe", ignoreCase = true) == true ||
+                t.message?.contains("Connection reset", ignoreCase = true) == true ||
+                t.message?.contains("Stream closed", ignoreCase = true) == true
+
+            if (isDisconnection) {
+                logger.warn("[SessionLifecycle][prompt] Client disconnection detected, cleaning up session state")
+                disconnectLocked()
+            }
+            _lastStopReason.value = StopReason.CANCELLED
+            _sessionUpdatedAt.value = System.currentTimeMillis()
+            throw t
         } finally {
             setLoadingState(false, "sendPrompt:finally")
             logger.info("[SessionLifecycle][prompt] sendPrompt end: state=${sessionStateSnapshot()}")

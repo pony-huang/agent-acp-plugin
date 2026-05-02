@@ -212,7 +212,9 @@ class PlanEntriesPanel : JPanel(BorderLayout()) {
         return JBScrollPane(entryListPanel).apply {
             border = JBUI.Borders.empty()
             preferredSize = Dimension(JBUI.scale(420), JBUI.scale(220))
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(320))
             horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBarPolicy = JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
             viewport.isOpaque = false
             isOpaque = false
 

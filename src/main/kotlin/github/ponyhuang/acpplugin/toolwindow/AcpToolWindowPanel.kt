@@ -128,6 +128,22 @@ class AcpToolWindowPanel(
                     sessionService.sendPrompt(prompt)
                 } catch (t: Throwable) {
                     logger.warn("Failed to submit prompt", t)
+                    val isDisconnection = t is java.io.IOException ||
+                        t.message?.contains("Broken pipe", ignoreCase = true) == true ||
+                        t.message?.contains("Connection reset", ignoreCase = true) == true ||
+                        t.message?.contains("Stream closed", ignoreCase = true) == true
+
+                    if (isDisconnection) {
+                        Notifications.Bus.notify(
+                            Notification(
+                                MyBundle.message("notification.connectionError"),
+                                MyBundle.message("notification.connectionLost"),
+                                t.message ?: MyBundle.message("notification.unknownError"),
+                                NotificationType.WARNING
+                            ),
+                            project
+                        )
+                    }
                 }
             }
         }
@@ -527,7 +543,9 @@ class AcpToolWindowPanel(
         val popupContent = com.intellij.ui.components.JBScrollPane(sessionList).apply {
             border = JBUI.Borders.empty()
             preferredSize = Dimension(JBUI.scale(460), JBUI.scale(220))
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(400))
             horizontalScrollBarPolicy = com.intellij.ui.components.JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBarPolicy = com.intellij.ui.components.JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
         }
 
         sessionsPopup = JBPopupFactory.getInstance()

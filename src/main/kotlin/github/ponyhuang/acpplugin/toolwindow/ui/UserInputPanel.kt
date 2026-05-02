@@ -408,7 +408,9 @@ class UserInputPanel(
         val popupContent = JBScrollPane(commandList).apply {
             border = JBUI.Borders.empty()
             preferredSize = java.awt.Dimension(JBUI.scale(420), JBUI.scale(220))
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(320))
             horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBarPolicy = JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
         }
 
         commandPopup = JBPopupFactory.getInstance()

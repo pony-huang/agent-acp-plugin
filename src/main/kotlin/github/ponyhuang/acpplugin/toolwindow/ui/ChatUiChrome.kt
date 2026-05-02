@@ -6,6 +6,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BasicStroke
 import java.awt.BorderLayout
+import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Insets
@@ -27,6 +28,20 @@ internal class MessageTemplatePanel(
     init {
         isOpaque = false
         add(contentPanel, BorderLayout.CENTER)
+    }
+
+    override fun getMaximumSize(): Dimension {
+        val preferred = preferredSize
+        return Dimension(Int.MAX_VALUE, preferred.height)
+    }
+
+    override fun getPreferredSize(): Dimension {
+        val contentPreferred = contentPanel.getPreferredSize()
+        val arcWidth = JBUI.scale(arc) * 2
+        return Dimension(
+            contentPreferred.width + arcWidth,
+            contentPreferred.height + JBUI.scale(arc) * 2
+        )
     }
 
     override fun paintComponent(g: Graphics) {
