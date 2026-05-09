@@ -1,0 +1,22 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <id>github.ponyhuang.acpplugin</id>
+    <name>ACP Chat</name>
+    <vendor>pony-huang</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+    <resource-bundle>messages.MyBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <postStartupActivity implementation="github.ponyhuang.acpplugin.startup.MyProjectActivity" />
+        <toolWindow factoryClass="github.ponyhuang.acpplugin.toolwindow.AcpToolWindowFactory" id="ACP Chat"/>
+        <applicationService serviceImplementation="github.ponyhuang.acpplugin.services.AcpAgentRegistryService"/>
+        <applicationService serviceImplementation="github.ponyhuang.acpplugin.settings.AcpPluginSettings"/>
+        <applicationConfigurable
+                parentId="tools"
+                instance="github.ponyhuang.acpplugin.settings.AcpSettingsConfigurable"
+                id="ACPChatSettings"
+                displayName="ACP Chat"/>
+    </extensions>
+
+</idea-plugin>
